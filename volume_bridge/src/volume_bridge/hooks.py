@@ -20,6 +20,11 @@ Each event has a list of actions, run in order:
   them. A branch is one action or a list of actions run in order, e.g. power
   the amplifier on and wait for it to warm up while Home Assistant is called.
 
+If an event's actions include a ``sync``, the bridge holds volume sync in both
+directions from the start of the event until the first ``sync`` has run: an
+amplifier that is still waking up would reject volume commands, and its stale
+volume must not be pushed to the source. The sync then sends the latest volume.
+
 A failing action is logged and the next one (in its branch) still runs. Events are handled one
 at a time in the order they happen, so a disconnect's actions never overtake
 the connect's.
@@ -120,6 +125,11 @@ def _parse_branch(data: Any, where: str) -> tuple[Action, ...]:
     return (_parse_action(data, where),)
 
 
+def _contains_sync(actions: tuple[Action, ...]) -> bool:
+    return any(a.kind == "sync" or (a.kind == "parallel" and any(_contains_sync(b) for b in a.value))
+               for a in actions)
+
+
 def _kill_group(proc: asyncio.subprocess.Process) -> None:
     try:
         os.killpg(proc.pid, signal.SIGKILL)
@@ -136,6 +146,7 @@ class HookRunner:
         self.bridge = bridge
         self._queue: asyncio.Queue[tuple[str, dict[str, str]]] = asyncio.Queue()
         self._task: asyncio.Task | None = None
+        self._holding = False
 
     def fire(self, event: str, client: str = "") -> None:
         """Queue the actions for ``event`` (no-op if it has none)."""
@@ -161,8 +172,19 @@ class HookRunner:
         while not self._queue.empty():
             event, env = self._queue.get_nowait()
             log.info("running %s hooks", event)
-            await self._run_sequence(event, self.hooks[event], env)
+            if _contains_sync(self.hooks[event]):
+                self.bridge.hold()
+                self._holding = True
+            try:
+                await self._run_sequence(event, self.hooks[event], env)
+            finally:
+                self._release()
             log.info("%s hooks done", event)
+
+    def _release(self) -> None:
+        if self._holding:
+            self._holding = False
+            self.bridge.release()
 
     async def _run_sequence(self, event: str, actions: tuple[Action, ...], env: dict[str, str]) -> None:
         for action in actions:
@@ -180,9 +202,12 @@ class HookRunner:
         elif action.kind == "delay":
             await asyncio.sleep(action.value)
         elif action.kind == "sync":
-            await self.amplifier.refresh()
-            self.bridge.sync(action.value)
-            await self.bridge.idle()
+            try:
+                await self.amplifier.refresh()
+                self.bridge.sync(action.value)
+                await self.bridge.idle()
+            finally:
+                self._release()
         elif action.kind == "shell":
             await self._shell(action, env)
         elif action.kind == "parallel":

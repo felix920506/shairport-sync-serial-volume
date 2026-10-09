@@ -192,3 +192,61 @@ async def test_tcp_serial_send_command_and_refresh():
     finally:
         await amp.stop()
         server.close()
+
+
+async def test_volume_sync_is_held_until_the_hook_syncs():
+    """While the amp warms up, neither side follows the other: the slider must
+    not snap back to the sleeping amp's stale level, and the amp isn't sent
+    commands it would reject. The sync then applies the source's latest volume."""
+    source, amp, bridge, hooks = await make(
+        {"on_connect": [{"send": "PWR 1"}, {"delay": 0.2}, {"sync": "source"}]}, source_volume=-15.0)
+    hooks.fire("connect")
+    await asyncio.sleep(0.02)
+    source.user_sets(-6.0)  # slider moved during the warm-up
+    amp.knob(30)            # e.g. a stale report from the amp
+    await asyncio.sleep(0.1)
+    assert amp.commands == [] and source.sent == []
+    await hooks.idle()
+    await settle(bridge)
+    assert amp.commands == [("level", 80)]  # -6 dB
+    assert source.sent == []
+    amp.knob(40)  # back to normal afterwards
+    await settle(bridge)
+    assert source.sent == [-18.0]  # level 40
+
+
+async def test_hooks_without_sync_do_not_hold():
+    source, amp, bridge, hooks = await make({"on_connect": [{"delay": 0.2}]})
+    hooks.fire("connect")
+    await asyncio.sleep(0.02)
+    source.user_sets(-6.0)
+    await settle(bridge)
+    assert amp.commands == [("level", 80)]
+    await hooks.idle()
+
+
+async def test_hold_is_released_when_sync_fails():
+    source, amp, bridge, hooks = await make({"on_connect": [{"sync": "source"}, {"delay": 0.2}]})
+
+    async def broken_refresh():
+        raise ConnectionError("amplifier not connected")
+
+    amp.refresh = broken_refresh
+    hooks.fire("connect")
+    await asyncio.sleep(0.05)  # sync failed, delay still running
+    source.user_sets(-6.0)
+    await settle(bridge)
+    assert amp.commands == [("level", 80)]
+    await hooks.idle()
+
+
+async def test_hold_lasts_until_the_first_sync_in_parallel_branches():
+    source, amp, bridge, hooks = await make({"on_connect": [
+        {"parallel": [[{"delay": 0.1}, {"sync": "source"}], {"delay": 0.3}]},
+    ]})
+    hooks.fire("connect")
+    await asyncio.sleep(0.2)  # sync done, the other branch still running
+    source.user_sets(-6.0)
+    await settle(bridge)
+    assert amp.commands[-1] == ("level", 80)
+    await hooks.idle()

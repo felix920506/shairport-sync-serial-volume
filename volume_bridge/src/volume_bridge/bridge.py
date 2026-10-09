@@ -183,6 +183,8 @@ class VolumeBridge:
         self._commanded_mute: bool | None = None
         self._amp_send_failed = False
         self._source_send_failed = False
+        # While > 0, neither side follows the other (see hold()).
+        self._holds = 0
 
         amplifier.add_listener(self.on_amplifier_state)
 
@@ -249,6 +251,9 @@ class VolumeBridge:
         self._follow_amplifier(state)
 
     def _follow_source(self, volume: float) -> None:
+        if self._holds:
+            log.debug("airplay volume %.2f held", volume)
+            return
         # While a command is queued or in flight, the amp's reported state is
         # stale (it's about to change); compare with where it's being sent instead.
         if self._to_amp.busy:
@@ -262,6 +267,9 @@ class VolumeBridge:
         self._to_amp.request(volume)
 
     def _follow_amplifier(self, state: AmplifierState) -> None:
+        if self._holds:
+            log.debug("amplifier state %s held", state)
+            return
         volume = self.source.volume
         if volume is None or not self._source_reachable:
             # No source to tell. When a session starts, the amplifier is
@@ -309,6 +317,19 @@ class VolumeBridge:
         volume = self.source.volume
         if volume is not None and self._source_reachable and not self._source_send_failed:
             self._follow_source(volume)
+
+    def hold(self) -> None:
+        """Stop following either side until :meth:`release`, e.g. while a hook
+        wakes the amplifier: it would reject commands, and its stale state
+        must not be pushed to the source. :meth:`sync` still works."""
+        if not self._holds:
+            log.info("volume sync on hold")
+        self._holds += 1
+
+    def release(self) -> None:
+        self._holds -= 1
+        if not self._holds:
+            log.info("volume sync resumed")
 
     def sync(self, winner: str) -> None:
         """Make both sides agree, e.g. after a hook woke the amplifier.

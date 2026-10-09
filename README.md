@@ -239,7 +239,7 @@ connect's.
 | `{ send = "PWR 1" }` | Sends a command over the amplifier's connection (the same serial port or serial server), wrapped like the backend's own commands. Add `raw = true` to send it byte for byte, e.g. for another device on a shared port. |
 | `{ shell = "...", timeout = 30 }` | Runs a command with `/bin/sh -c`, e.g. `curl` to Home Assistant's REST API. It gets `VOLUME_BRIDGE_EVENT`, `VOLUME_BRIDGE_SOURCE` (the source's address), `VOLUME_BRIDGE_AIRPLAY_VOLUME`, `VOLUME_BRIDGE_AMPLIFIER_LEVEL` and `VOLUME_BRIDGE_AMPLIFIER_MUTED` in its environment, plus the container's environment. On timeout, the command and everything it started are killed. |
 | `{ delay = 3 }` | Waits, e.g. while equipment powers up. |
-| `{ sync = "source" }` | Re-reads the amplifier's state, then sends the source's volume to it, even if they already seem to agree (an amp in standby ignores commands). `"amplifier"` sends the amplifier's volume to the source instead. |
+| `{ sync = "source" }` | Re-reads the amplifier's state, then sends the source's volume to it, even if they already seem to agree (an amp in standby ignores commands). `"amplifier"` sends the amplifier's volume to the source instead. Until an event's first `sync` has run, the bridge holds volume sync in both directions (see below). |
 | `{ parallel = [A, [B, C]] }` | Runs branches at the same time and waits for all of them. A branch is one action, or a list of actions run in order. |
 
 For example, when a phone connects, power on a McIntosh MA352 (which takes 15-20 seconds to warm up) and,
@@ -255,6 +255,11 @@ on_connect = [
   ] },
 ]
 ```
+
+While the amp warms up, the bridge holds volume sync. It sends no volume commands that the amp would reject,
+and it doesn't push the sleeping amp's stale volume to the phone, so the slider doesn't snap back if you move it.
+The `sync` then applies the slider's latest position, and two-way sync resumes. Events without a `sync` don't
+hold anything.
 
 Webhooks need no token. Home Assistant's REST API does: pass a long-lived access token in
 `docker-compose.yaml` as e.g. `HA_TOKEN`, and send it as `-H "Authorization: Bearer $HA_TOKEN"` to

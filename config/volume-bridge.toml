@@ -128,7 +128,9 @@ control_port = 7001
 #   { delay = 3 }                    wait (e.g. while equipment powers up)
 #   { sync = "source" }              re-read the amplifier, then send the
 #                                    source's volume to it ("amplifier": the
-#                                    other way round)
+#                                    other way round). Until the first sync of
+#                                    an event, volume sync is held in both
+#                                    directions (the amp may still be waking)
 #   { parallel = [ A, [B, C] ] }     run branches at the same time and wait
 #                                    for all; a branch is one action or a list
 #                                    of actions run in order

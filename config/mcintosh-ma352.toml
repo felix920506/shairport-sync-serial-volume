@@ -92,8 +92,9 @@ ignore_patterns = []
 # Wake the amp when a source connects. In standby the MA352 rejects every
 # command except power, so turn it on, wait until it has warmed up (15-20 s),
 # then re-read its state (re-enabling status updates) and bring it to the
-# source's volume. Volume changes made during the warm-up are rejected by the
-# amp; the sync at the end catches up with the source.
+# source's volume. Until that sync, the bridge holds volume sync in both
+# directions, so moving the slider during the warm-up doesn't snap back; the
+# sync applies the slider's latest position.
 #
 # At the same time, a Home Assistant webhook (an automation with a Webhook
 # trigger, ID "airplay-living-room") can switch on whatever else is needed:
