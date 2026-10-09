@@ -80,13 +80,14 @@ RUN apk -U --no-cache add \
       ffmpeg-libavcodec ffmpeg-libavformat ffmpeg-libavutil ffmpeg-libswresample
 RUN apk -U --no-cache add \
       alsa-lib alsa-utils avahi bash curl dbus glib libconfig libgcrypt libplist \
-      libcrypto3 libsodium libuuid popt python3 su-exec tini \
+      libcrypto3 libsodium libuuid popt python3 ser2net su-exec tini \
  && rm -f /etc/avahi/services/*.service \
  && addgroup -S shairport-sync \
  && adduser -S -D -H -G shairport-sync shairport-sync \
  && addgroup -g 29 docker_audio 2>/dev/null || true \
  && addgroup shairport-sync docker_audio \
  && addgroup shairport-sync audio \
+ && addgroup shairport-sync dialout \
  && mkdir -p /run/dbus
 
 COPY --from=nqptp /src/nqptp/nqptp /usr/local/bin/nqptp
@@ -96,10 +97,13 @@ COPY --from=volume-bridge /opt/volume-bridge /opt/volume-bridge
 
 COPY config/shairport-sync.conf /etc/shairport-sync.conf
 COPY config/volume-bridge.toml /etc/volume-bridge.toml
+COPY config/ser2net.yaml /etc/ser2net/ser2net.yaml
 COPY --chmod=755 rootfs/usr/local/bin/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENV ENABLE_AVAHI=1 \
     ENABLE_NQPTP=1 \
+    ENABLE_SER2NET=0 \
+    SER2NET_CONFIG=/etc/ser2net/ser2net.yaml \
     ENABLE_VOLUME_BRIDGE=1 \
     VOLUME_BRIDGE_CONFIG=/etc/volume-bridge.toml
 

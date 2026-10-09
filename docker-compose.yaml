@@ -24,10 +24,16 @@ services:
       # Set to 0 if the host already runs avahi-daemon / nqptp.
       ENABLE_AVAHI: "1"
       ENABLE_NQPTP: "1"
+      # Optional ser2net (off by default; "1" to enable): shares the amplifier's
+      # serial port -- or a network serial server that accepts only one client --
+      # between the volume bridge and other programs. Set it up in
+      # config/ser2net.yaml and point the bridge at host 127.0.0.1, port 4001.
+      ENABLE_SER2NET: "0"
     volumes:
       - /dev/snd:/dev/snd
       - ./config/shairport-sync.conf:/etc/shairport-sync.conf:ro
       - ./config/volume-bridge.toml:/etc/volume-bridge.toml:ro
+      - ./config/ser2net.yaml:/etc/ser2net/ser2net.yaml:ro
       # Custom amplifier backends: put modules here and use type = "my_amp:MyAmplifier".
       # - ./amplifiers:/opt/amplifiers:ro
     # environment entry to go with the mount above:
@@ -36,6 +42,11 @@ services:
       # - ./hooks:/opt/hooks:ro
     # Secrets for hook commands go in the environment, e.g.:
     #   HA_TOKEN: "<Home Assistant long-lived access token>"
+    # A USB-RS232 adapter for ser2net (connector: serialdev,/dev/amp-serial,...).
+    # Use its stable /dev/serial/by-id name; after replugging it, restart the
+    # container.
+    # devices:
+    #   - /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_XXXXXXXX-if00-port0:/dev/amp-serial
     logging:
       options:
         max-size: "10m"

@@ -7,3 +7,4 @@ __pycache__/
 # Local settings
 docker-compose.override.yaml
 config/*.local.toml
+config/*.local.yaml

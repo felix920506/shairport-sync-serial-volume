@@ -134,6 +134,17 @@ raw mode, or a serial multiplexer. The protocol is described in `config/volume-b
 example there): how messages are framed, command templates, and regexes that extract volume and mute. It
 reconnects automatically, can poll, and paces commands.
 
+**Built-in serial multiplexer (optional).** The container includes [ser2net](https://github.com/cminyard/ser2net).
+It's off by default; set `ENABLE_SER2NET: "1"` to turn it on. ser2net holds the single connection to the
+amplifier, and any number of TCP clients share it: the bridge, and e.g. Home Assistant or a control app.
+Everything the amplifier sends goes to every client. What a client sends goes only to the amplifier. Set it up
+in `config/ser2net.yaml`. Its *connector* is either a USB-RS232 adapter on this host (pass it in with
+`devices:` in `docker-compose.yaml`) or a network serial server that accepts only one client. Its *accepter*
+is the port clients connect to: `127.0.0.1:4001` by default, or `0.0.0.0` for other machines. There's no
+authentication, so anyone who can reach that port can control the amplifier. Then point the bridge at
+`host = "127.0.0.1"`, `port = 4001`. Leave `own_commands_echoed = false`: ser2net doesn't send one client's
+commands to the others.
+
 **Framing.** Not every RS-232 protocol uses lines, so framing (splitting the byte stream into messages) is
 separate from parsing:
 

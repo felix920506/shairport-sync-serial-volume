@@ -1,0 +1,31 @@
+%YAML 1.1
+---
+# Optional ser2net inside the container (off unless ENABLE_SER2NET=1): one
+# connection to the amplifier's serial port, shared by any number of TCP
+# clients -- the volume bridge and e.g. Home Assistant or a control app. Everything the amplifier
+# sends goes to every client; what a client sends goes only to the amplifier.
+#
+# Point the bridge at it: [amplifier.options] host = "127.0.0.1", port = 4001.
+#
+# ser2net documentation: https://github.com/cminyard/ser2net (man ser2net.yaml)
+
+connection: &amp
+  # Where clients connect ("tcp": raw bytes, no telnet). 127.0.0.1: only
+  # programs on this host (the container uses host networking). 0.0.0.0 lets
+  # other machines connect -- there is no authentication, so anyone on the
+  # network can then control the amplifier.
+  accepter: tcp,127.0.0.1,4001
+
+  # The amplifier's serial port, at the amplifier's settings (here 115200 baud,
+  # no parity, 8 data bits, 1 stop bit; "local" ignores modem control lines).
+  # The adapter is passed into the container as /dev/amp-serial (see
+  # "devices:" in docker-compose.yaml).
+  connector: serialdev,/dev/amp-serial,115200n81,local
+  # Or a network serial server that accepts only one client (raw TCP):
+  # connector: tcp,192.168.1.50,4001
+
+  options:
+    # How many clients may share the port at once. Beyond that, new clients
+    # are refused (kickolduser: false), never the ones already connected.
+    max-connections: 8
+    kickolduser: false

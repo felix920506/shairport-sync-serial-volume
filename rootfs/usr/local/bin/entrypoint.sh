@@ -1,11 +1,14 @@
 #!/bin/bash
-# Starts the private D-Bus system bus, Avahi, NQPTP, Shairport Sync and the
-# volume bridge. If any long-running process exits, the container exits so the
+# Starts the private D-Bus system bus, Avahi, NQPTP, ser2net (optional),
+# Shairport Sync and the volume bridge. If any long-running process exits, the container exits so the
 # orchestrator (restart policy) can bring everything back up together.
 #
 # Environment:
 #   ENABLE_AVAHI=1          start avahi-daemon inside the container
 #   ENABLE_NQPTP=1          start nqptp (disable if the host already runs one)
+#   ENABLE_SER2NET=0        start ser2net: shares the amplifier's serial port
+#                           (or a single-client serial server) between TCP clients
+#   SER2NET_CONFIG          path to ser2net's YAML config
 #   ENABLE_VOLUME_BRIDGE=1  start the volume bridge
 #   VOLUME_BRIDGE_CONFIG    path to the bridge's TOML config
 #   SPS_NAME                AirPlay service name (overrides general.name)
@@ -52,6 +55,15 @@ if [ "${ENABLE_NQPTP:-1}" = "1" ]; then
   /usr/local/bin/nqptp &
   pids+=($!)
   log "NQPTP started"
+fi
+
+if [ "${ENABLE_SER2NET:-0}" = "1" ]; then
+  # Before the volume bridge, which connects through it. -d: stay in the
+  # foreground and log to stdout; -u: no UUCP lock files (they'd need root, and
+  # nothing else in the container uses the port).
+  su-exec shairport-sync ser2net -d -u -c "${SER2NET_CONFIG:-/etc/ser2net/ser2net.yaml}" &
+  pids+=($!)
+  log "ser2net started"
 fi
 
 sps_args=()
