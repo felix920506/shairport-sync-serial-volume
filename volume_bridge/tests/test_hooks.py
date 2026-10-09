@@ -330,3 +330,16 @@ async def test_tcp_serial_query_power():
     finally:
         await amp.stop()
         server.close()
+
+
+async def test_shell_actions_are_logged_without_their_secrets(caplog):
+    url = "http://192.0.2.10:8123/api/webhook/secret-webhook-id"
+    source, amp, bridge, hooks = await make({"on_connect": [
+        {"shell": f"true {url}"}, {"shell": f"exit 1 {url}"}, {"send": "PWR 1"}]})
+    with caplog.at_level("INFO", logger="volume_bridge.hooks"):
+        hooks.fire("connect")
+        await hooks.idle()
+    assert "secret-webhook-id" not in caplog.text
+    assert "finished in" in caplog.text            # the successful command
+    assert "failed: exit status 1" in caplog.text  # the failing one
+    assert "sent 'PWR 1' to the amplifier" in caplog.text

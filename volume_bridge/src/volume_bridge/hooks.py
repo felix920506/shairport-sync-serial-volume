@@ -77,6 +77,10 @@ class Action:
             return f"parallel ({len(self.value)} branches)"
         if self.kind == "if_amplifier_off":
             return f"if_amplifier_off ({len(self.value)} actions)"
+        if self.kind == "shell":
+            # Only the start: commands often end in URLs with secrets (webhook IDs, tokens).
+            command = self.value if len(self.value) <= 40 else self.value[:40] + "…"
+            return f"shell {command!r}"
         return f"{self.kind} {self.value!r}"
 
 
@@ -211,6 +215,7 @@ class HookRunner:
         log.debug("hook: %s", action.describe())
         if action.kind == "send":
             await self.amplifier.send_command(action.value, raw=action.raw)
+            log.info("%s hook: sent %r to the amplifier", event, action.value)
         elif action.kind == "delay":
             await asyncio.sleep(action.value)
         elif action.kind == "sync":
@@ -221,7 +226,10 @@ class HookRunner:
             finally:
                 self._release()
         elif action.kind == "shell":
+            start = asyncio.get_running_loop().time()
             await self._shell(action, env)
+            log.info("%s hook: %s finished in %.2fs", event, action.describe(),
+                     asyncio.get_running_loop().time() - start)
         elif action.kind == "parallel":
             await asyncio.gather(*(self._run_sequence(event, branch, env) for branch in action.value))
         elif action.kind == "if_amplifier_off":
