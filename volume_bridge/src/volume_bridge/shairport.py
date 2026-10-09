@@ -53,14 +53,21 @@ class ShairportSync:
         loop = asyncio.get_running_loop()
         deadline = None if timeout is None else loop.time() + timeout
         while True:
+            # Shairport Sync takes the bus name before it has exported every
+            # interface, so wait until the ones we use are actually there.
             try:
                 introspection = await self._bus.introspect(self.service, PATH)
-                break
+                exported = {i.name for i in introspection.interfaces}
+                missing = {MAIN_INTERFACE, REMOTE_INTERFACE} - exported
+                reason = f"missing {', '.join(sorted(missing))}" if missing else ""
             except DBusError as e:
-                if deadline is not None and loop.time() > deadline:
-                    raise
-                log.info("waiting for %s on the %s bus (%s)", self.service, self.bus_name, e.type)
-                await asyncio.sleep(retry_interval)
+                reason = e.type
+            if not reason:
+                break
+            if deadline is not None and loop.time() > deadline:
+                raise TimeoutError(f"{self.service} not available: {reason}")
+            log.info("waiting for %s on the %s bus (%s)", self.service, self.bus_name, reason)
+            await asyncio.sleep(retry_interval)
 
         proxy = self._bus.get_proxy_object(self.service, PATH, introspection)
         self._remote = proxy.get_interface(REMOTE_INTERFACE)

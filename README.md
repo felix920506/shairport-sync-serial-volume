@@ -160,8 +160,12 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[test]'
   already runs `avahi-daemon` or `nqptp`, set `ENABLE_AVAHI=0` or `ENABLE_NQPTP=0`. With `ENABLE_AVAHI=0`
   you must also make the host's Avahi reachable over D-Bus, so the default (in-container Avahi) is
   simpler.
-- **The volume can only be pushed to a source during a session.** If the amplifier changes while nothing
-  is playing, the source sends its own volume when it next connects, and the amplifier follows it.
+- **The volume can only be pushed to a source during a session.** The bridge uses Shairport Sync's "active"
+  state for this. It begins when play starts and ends `active_state_timeout` after play stops. That timeout
+  is raised to 15 minutes in `config/shairport-sync.conf` so pauses count as active. Outside a session the
+  bridge leaves the source alone. When the next session starts, the source's volume wins and the amplifier
+  follows it. This is also what keeps the amp from jumping to Shairport Sync's idle default (0 dB = full
+  scale) after a restart.
 - **In a multi-room group**, a volume change from the amplifier sets *this speaker's* volume in the
   group. The group's master volume on the source adjusts the way it does when you move one speaker's slider.
 - AirPlay 2 remote control in Shairport Sync is experimental upstream. If an update breaks it, pin

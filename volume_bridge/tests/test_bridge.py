@@ -16,6 +16,7 @@ class FakeSource:
 
     def __init__(self, volume=-15.0):
         self.volume = volume
+        self.active = True
         self.sent = []
         self.bridge = None
         self.fail = False
@@ -52,8 +53,10 @@ class RecordingStub(StubAmplifier):
         await super().set_mute(muted)
 
 
-async def make(scale=LevelScale(0, 100, 1), source_volume=-15.0, settings=SETTINGS, amp_options=None):
+async def make(scale=LevelScale(0, 100, 1), source_volume=-15.0, settings=SETTINGS, amp_options=None,
+               active=True):
     source = FakeSource(source_volume)
+    source.active = active
     amp = RecordingStub(amp_options)
     bridge = VolumeBridge(source, amp, scale, settings)
     source.bridge = bridge
@@ -190,3 +193,40 @@ async def test_session_start_brings_amplifier_to_source_volume():
     bridge.on_source_active(True)
     await settle(bridge)
     assert amp.commands == [("level", 90)]
+
+
+async def test_nothing_pushed_to_source_before_its_volume_is_known():
+    source, amp, bridge = await make(source_volume=None)
+    amp.knob(20)
+    await settle(bridge)
+    assert source.sent == []
+
+
+async def test_idle_source_never_drives_the_amplifier():
+    """Regression: at startup Shairport Sync reports a default 0 dB while idle.
+    The amplifier must not be sent to full volume."""
+    source, amp, bridge = await make(source_volume=0.0, active=False)
+    amp.knob(20)
+    await settle(bridge)
+    assert source.sent == []
+    assert amp.commands == []
+
+
+async def test_knob_while_idle_is_overridden_by_source_at_session_start():
+    source, amp, bridge = await make()
+    source.active = False
+    amp.knob(70)
+    await settle(bridge)
+    assert source.sent == []
+    source.active = True
+    bridge.on_source_active(True)
+    await settle(bridge)
+    assert amp.commands == [("level", 50)]
+
+
+async def test_airplay_change_event_is_followed_even_if_not_active():
+    source, amp, bridge = await make()
+    source.active = False
+    source.user_sets(-6.0)
+    await settle(bridge)
+    assert amp.commands == [("level", 80)]

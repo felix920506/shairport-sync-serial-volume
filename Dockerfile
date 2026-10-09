@@ -11,7 +11,9 @@
 
 ARG ALPINE_VERSION=3.23.4
 ARG FFMPEG_BRANCH=release/8.1
-ARG NQPTP_REF=c925f27c1fd12e4033ac477e5a405969b0b0260b
+# nqptp development branch: provides shared-memory interface (SMI) version 11,
+# which this Shairport Sync commit requires (nqptp main only provides 10).
+ARG NQPTP_REF=0a88cd7ca9325f023ca5d891714695167672bdb9
 ARG SHAIRPORT_SYNC_REF=b45f15b32882409a7d39b01293d43da3d5519416
 
 ##### FFmpeg (decoders only: AAC + ALAC) #####

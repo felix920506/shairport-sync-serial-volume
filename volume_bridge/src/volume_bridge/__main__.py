@@ -30,9 +30,9 @@ async def run(config_path: str) -> int:
         loop.add_signal_handler(sig, stop.set)
 
     log.info("amplifier: %s, scale %s", config.amplifier_type, config.amplifier_scale)
+    await source.connect()
     await amplifier.start()
     try:
-        await source.connect()
         disconnected = asyncio.ensure_future(source.wait_disconnected())
         stopped = asyncio.ensure_future(stop.wait())
         done, pending = await asyncio.wait({disconnected, stopped}, return_when=asyncio.FIRST_COMPLETED)
