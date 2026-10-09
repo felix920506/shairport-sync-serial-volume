@@ -10,30 +10,10 @@
 # no longer hides the volume slider on the source.
 
 ARG ALPINE_VERSION=3.23.4
-ARG FFMPEG_BRANCH=release/8.1
 # nqptp development branch: provides shared-memory interface (SMI) version 11,
 # which this Shairport Sync commit requires (nqptp main only provides 10).
 ARG NQPTP_REF=0a88cd7ca9325f023ca5d891714695167672bdb9
 ARG SHAIRPORT_SYNC_REF=b45f15b32882409a7d39b01293d43da3d5519416
-
-##### FFmpeg (decoders only: AAC + ALAC) #####
-FROM alpine:${ALPINE_VERSION} AS ffmpeg
-RUN apk -U add build-base git nasm pkgconf
-ARG FFMPEG_BRANCH
-RUN git clone --depth=1 -b "${FFMPEG_BRANCH}" https://github.com/FFmpeg/FFmpeg /src/ffmpeg
-WORKDIR /src/ffmpeg
-RUN ./configure \
-      --prefix=/ffmpeg \
-      --extra-libs="-lpthread -lm" \
-      --ld="g++" \
-      --disable-static --enable-shared \
-      --disable-programs --disable-doc --disable-everything \
-      --disable-iconv --disable-avdevice --disable-avfilter --disable-swscale \
-      --disable-network --disable-iamf --disable-pixelutils \
-      --enable-decoder=alac --enable-decoder=aac \
-      --enable-small --extra-cflags="-Os" \
- && make -j"$(nproc)" \
- && make install
 
 ##### NQPTP (PTP timing companion required for AirPlay 2) #####
 FROM alpine:${ALPINE_VERSION} AS nqptp
@@ -51,9 +31,7 @@ FROM alpine:${ALPINE_VERSION} AS shairport-sync
 RUN apk -U add \
       alsa-lib-dev autoconf automake avahi-dev build-base dbus git glib-dev \
       libconfig-dev libgcrypt-dev libplist-dev libplist-util libsodium-dev libtool \
-      openssl-dev popt-dev pkgconf util-linux-dev xxd
-COPY --from=ffmpeg /ffmpeg/lib/ /usr/local/lib/
-COPY --from=ffmpeg /ffmpeg/include/ /usr/local/include/
+      ffmpeg-dev openssl-dev popt-dev pkgconf util-linux-dev xxd
 ARG SHAIRPORT_SYNC_REF
 WORKDIR /src/shairport-sync
 RUN git init -q . \
@@ -64,7 +42,7 @@ WORKDIR /src/shairport-sync/build
 # Deliberately minimal: ALSA output only, no soxr, no convolution, no loudness DSP.
 # The D-Bus interface is what the volume bridge talks to.
 RUN autoreconf -i .. \
- && PKG_CONFIG_PATH=/usr/local/lib/pkgconfig ../configure \
+ && ../configure \
       --sysconfdir=/etc \
       --with-airplay-2 \
       --with-alsa \
@@ -86,7 +64,8 @@ RUN python3 -m venv /opt/volume-bridge \
 ##### Runtime #####
 FROM alpine:${ALPINE_VERSION}
 RUN apk -U --no-cache add \
-      alsa-lib alsa-utils avahi bash dbus glib libconfig libgcrypt libplist \
+      alsa-lib alsa-utils avahi bash dbus ffmpeg-libavcodec ffmpeg-libavformat \
+      ffmpeg-libavutil ffmpeg-libswresample glib libconfig libgcrypt libplist \
       libcrypto3 libsodium libuuid popt python3 su-exec tini \
  && rm -f /etc/avahi/services/*.service \
  && addgroup -S shairport-sync \
@@ -96,7 +75,6 @@ RUN apk -U --no-cache add \
  && addgroup shairport-sync audio \
  && mkdir -p /run/dbus
 
-COPY --from=ffmpeg /ffmpeg/lib/ /usr/local/lib/
 COPY --from=nqptp /src/nqptp/nqptp /usr/local/bin/nqptp
 COPY --from=shairport-sync /install/usr/local/bin/shairport-sync /usr/local/bin/shairport-sync
 COPY --from=shairport-sync /install/etc/dbus-1/system.d/shairport-sync-dbus.conf /etc/dbus-1/system.d/
