@@ -22,8 +22,12 @@ pids=()
 
 shutdown() {
   log "shutting down"
-  for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
-  wait || true
+  # In reverse start order, each one after the previous has exited, so nothing
+  # loses a service it depends on (e.g. the D-Bus bus) while still running.
+  for ((i = ${#pids[@]} - 1; i >= 0; i--)); do
+    kill -TERM "${pids[i]}" 2>/dev/null || true
+    wait "${pids[i]}" 2>/dev/null || true
+  done
 }
 trap shutdown TERM INT
 

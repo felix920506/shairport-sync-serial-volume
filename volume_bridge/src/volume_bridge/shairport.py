@@ -172,7 +172,10 @@ class ShairportSync:
 
     async def wait_disconnected(self) -> Any:
         if self._bus is not None:
-            await self._bus.wait_for_disconnect()
+            try:
+                await self._bus.wait_for_disconnect()
+            except (EOFError, OSError):
+                pass  # the bus went away: that's the disconnect we're waiting for
 
     def close(self) -> None:
         if self._metadata is not None:
