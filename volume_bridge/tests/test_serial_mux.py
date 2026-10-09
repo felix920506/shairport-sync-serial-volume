@@ -6,7 +6,7 @@ import asyncio
 import pytest
 
 from volume_bridge.amplifiers.base import AmplifierState
-from volume_bridge.amplifiers.tcp_line import TcpLineAmplifier
+from volume_bridge.amplifiers.tcp_serial import TcpSerialAmplifier
 from volume_bridge.bridge import BridgeSettings, VolumeBridge
 from volume_bridge.mapping import LevelScale
 
@@ -141,7 +141,7 @@ async def setup():
         amp = amp or SimulatedAmp()
         mux = SerialMux(amp, echo_to_sender=echo_to_sender)
         port = await mux.start()
-        client = TcpLineAmplifier(amp_options(port, **options))
+        client = TcpSerialAmplifier(amp_options(port, **options))
         states = []
         client.add_listener(states.append)
         await client.start()
@@ -247,7 +247,7 @@ async def test_bridge_with_slow_ramping_amp_does_not_fight_the_source():
     amp = SimulatedAmp(level=20, step_time=0.01)
     mux = SerialMux(amp)
     port = await mux.start()
-    client = TcpLineAmplifier(amp_options(port))
+    client = TcpSerialAmplifier(amp_options(port))
     source = FakeSource(volume=-24.0)  # level 20 of 0..100
     bridge = VolumeBridge(source, client, LevelScale(0, 100, 1),
                           BridgeSettings(source_echo_window=0.1, amplifier_echo_window=0.1))
@@ -276,7 +276,7 @@ async def test_bridge_with_another_program_changing_volume():
     amp = SimulatedAmp(level=20)
     mux = SerialMux(amp, echo_to_sender=True)
     port = await mux.start()
-    client = TcpLineAmplifier(amp_options(port, own_commands_echoed=True))
+    client = TcpSerialAmplifier(amp_options(port, own_commands_echoed=True))
     source = FakeSource(volume=-24.0)
     bridge = VolumeBridge(source, client, LevelScale(0, 100, 1),
                           BridgeSettings(source_echo_window=0.1, amplifier_echo_window=0.1))

@@ -5,7 +5,7 @@ import pytest
 from volume_bridge.amplifiers import create_amplifier, load_amplifier_class
 from volume_bridge.amplifiers.base import AmplifierState
 from volume_bridge.amplifiers.stub import StubAmplifier
-from volume_bridge.amplifiers.tcp_line import TcpLineAmplifier
+from volume_bridge.amplifiers.tcp_serial import TcpSerialAmplifier
 from volume_bridge.config import parse_config
 
 
@@ -58,10 +58,10 @@ async def wait_for(predicate, timeout=2.0):
         await asyncio.sleep(0.01)
 
 
-async def test_tcp_line_amplifier_round_trip():
+async def test_tcp_serial_amplifier_round_trip():
     server = FakeSerialServer(level=40)
     port = await server.start()
-    amp = TcpLineAmplifier({
+    amp = TcpSerialAmplifier({
         "host": "127.0.0.1",
         "port": port,
         "set_level_command": "MV{level_int:02d}",
@@ -89,10 +89,10 @@ async def test_tcp_line_amplifier_round_trip():
         await server.close()
 
 
-async def test_tcp_line_reconnects():
+async def test_tcp_serial_reconnects():
     server = FakeSerialServer(level=10)
     port = await server.start()
-    amp = TcpLineAmplifier({"host": "127.0.0.1", "port": port, "query_commands": ["MV?"],
+    amp = TcpSerialAmplifier({"host": "127.0.0.1", "port": port, "query_commands": ["MV?"],
                             "level_pattern": r"^MV(?P<level>\d+)$"})
     await amp.start()
     try:
@@ -106,16 +106,16 @@ async def test_tcp_line_reconnects():
         await server.close()
 
 
-async def test_tcp_line_level_offset():
-    amp = TcpLineAmplifier({"host": "x", "port": 1, "set_level_command": "V{level_int}",
+async def test_tcp_serial_level_offset():
+    amp = TcpSerialAmplifier({"host": "x", "port": 1, "set_level_command": "V{level_int}",
                             "level_pattern": r"^V(?P<level>\d+)$", "level_offset": -80})
     assert amp.encode_set_level(-30) == b"V50\r"
     assert amp.parse_message("V50") == {"level": -30.0}
 
 
-async def test_tcp_line_requires_host():
+async def test_tcp_serial_requires_host():
     with pytest.raises(ValueError, match="host"):
-        TcpLineAmplifier({"port": 1})
+        TcpSerialAmplifier({"port": 1})
 
 
 async def test_stub_control_port():
@@ -134,7 +134,7 @@ async def test_stub_control_port():
 
 def test_registry_builtin_and_module_reference():
     assert load_amplifier_class("stub") is StubAmplifier
-    assert load_amplifier_class("volume_bridge.amplifiers.tcp_line:TcpLineAmplifier") is TcpLineAmplifier
+    assert load_amplifier_class("volume_bridge.amplifiers.tcp_serial:TcpSerialAmplifier") is TcpSerialAmplifier
     assert isinstance(create_amplifier("stub", {}), StubAmplifier)
     with pytest.raises(ValueError):
         load_amplifier_class("nope")

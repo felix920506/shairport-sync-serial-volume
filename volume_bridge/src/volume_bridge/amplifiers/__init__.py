@@ -15,7 +15,8 @@ from .base import Amplifier, AmplifierState
 
 BUILTIN = {
     "stub": "volume_bridge.amplifiers.stub:StubAmplifier",
-    "tcp-line": "volume_bridge.amplifiers.tcp_line:TcpLineAmplifier",
+    "tcp-serial": "volume_bridge.amplifiers.tcp_serial:TcpSerialAmplifier",
+    "tcp-line": "volume_bridge.amplifiers.tcp_serial:TcpSerialAmplifier",  # older name
 }
 
 __all__ = ["Amplifier", "AmplifierState", "BUILTIN", "create_amplifier", "load_amplifier_class"]
