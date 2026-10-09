@@ -43,7 +43,13 @@ class SimulatedMA352:
 
     def _reply(self, cmd):
         name, _, par = cmd.partition(" ")
-        if not self.power and name != "PWR":
+        if name == "PWR":
+            if par in ("0", "1"):
+                self.power = par == "1"
+            elif par:
+                return "(ERROR – Invalid Parameter)"
+            return f"(PWR {int(self.power)})"
+        if not self.power:
             return "(ERROR – Invalid Command)"
         if name == "STA":
             self.status_enabled = par == "1" if par else self.status_enabled
@@ -143,4 +149,20 @@ async def test_ma352_with_bridge(ma352):
         assert source.volume == pytest.approx(-9.0)
     finally:
         bridge.close()
+        await amp.stop()
+
+
+async def test_ma352_power_query(ma352):
+    sim, config, options = ma352
+    amp = create_amplifier(config.amplifier_type, options)
+    await amp.start()
+    try:
+        await wait_for(lambda: amp.state is not None)
+        assert await amp.query_power() is True
+        sim.power = False
+        assert await amp.query_power() is False
+        await amp.send_command("PWR 1")
+        await wait_for(lambda: sim.power)
+        assert await amp.query_power() is True
+    finally:
         await amp.stop()

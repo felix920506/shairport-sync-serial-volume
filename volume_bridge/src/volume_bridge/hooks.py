@@ -19,6 +19,9 @@ Each event has a list of actions, run in order:
 * ``parallel`` -- run several branches at the same time and wait for all of
   them. A branch is one action or a list of actions run in order, e.g. power
   the amplifier on and wait for it to warm up while Home Assistant is called.
+* ``if_amplifier_off`` -- a list of actions run only if the amplifier says it
+  is off (e.g. power on + warm-up delay, skipped when it is already on). If the
+  backend can't tell (no power query configured, no answer), they run anyway.
 
 If an event's actions include a ``sync``, the bridge holds volume sync in both
 directions from the start of the event until the first ``sync`` has run: an
@@ -58,6 +61,7 @@ _ACTIONS = {
     "delay": set(),
     "sync": set(),
     "parallel": set(),
+    "if_amplifier_off": set(),
 }
 
 
@@ -71,6 +75,8 @@ class Action:
     def describe(self) -> str:
         if self.kind == "parallel":
             return f"parallel ({len(self.value)} branches)"
+        if self.kind == "if_amplifier_off":
+            return f"if_amplifier_off ({len(self.value)} actions)"
         return f"{self.kind} {self.value!r}"
 
 
@@ -115,6 +121,10 @@ def _parse_action(data: Any, where: str) -> Action:
         if not isinstance(value, list) or not value:
             raise ValueError(f"{where}: parallel must be a list of actions or lists of actions")
         value = tuple(_parse_branch(b, f"{where}.parallel[{i}]") for i, b in enumerate(value))
+    if kind == "if_amplifier_off":
+        if not isinstance(value, list):
+            raise ValueError(f"{where}: if_amplifier_off must be a list of actions")
+        value = _parse_branch(value, f"{where}.if_amplifier_off")
     return Action(kind, value, raw=bool(data.get("raw", False)),
                   timeout=float(data.get("timeout", 30.0)))
 
@@ -126,7 +136,9 @@ def _parse_branch(data: Any, where: str) -> tuple[Action, ...]:
 
 
 def _contains_sync(actions: tuple[Action, ...]) -> bool:
-    return any(a.kind == "sync" or (a.kind == "parallel" and any(_contains_sync(b) for b in a.value))
+    return any(a.kind == "sync"
+               or (a.kind == "parallel" and any(_contains_sync(b) for b in a.value))
+               or (a.kind == "if_amplifier_off" and _contains_sync(a.value))
                for a in actions)
 
 
@@ -212,6 +224,18 @@ class HookRunner:
             await self._shell(action, env)
         elif action.kind == "parallel":
             await asyncio.gather(*(self._run_sequence(event, branch, env) for branch in action.value))
+        elif action.kind == "if_amplifier_off":
+            try:
+                powered = await self.amplifier.query_power()
+            except Exception as e:
+                log.warning("couldn't ask the amplifier whether it is on: %s", e)
+                powered = None
+            if powered:
+                log.info("amplifier is already on: skipping %d actions", len(action.value))
+                return
+            log.info("amplifier is %s: running %d actions",
+                     "off" if powered is False else "in an unknown power state", len(action.value))
+            await self._run_sequence(event, action.value, env)
 
     async def _shell(self, action: Action, env: dict[str, str]) -> None:
         proc = await asyncio.create_subprocess_shell(

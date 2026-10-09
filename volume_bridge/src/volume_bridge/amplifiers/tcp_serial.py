@@ -49,6 +49,8 @@ binary protocols.
                           subtracted before formatting (for "MV00 = -80 dB" style scales)
     mute_pattern          regex with a named group "muted"
     mute_on_values        values of "muted" that mean muted (default ["ON", "1"])
+    power_pattern         regex with a named group "power" (for hooks' if_amplifier_off)
+    power_on_values       values of "power" that mean on (default ["ON", "1"])
     match                 "full" (default): a pattern must match the whole
                           message; "search": it may match anywhere in it.
                           (With framing = "stream" the patterns *are* the framing.)
@@ -56,6 +58,7 @@ binary protocols.
 
   Commands
     command_prefix, command_suffix   wrapped around every command (default "" and "\\r")
+    power_query_command   asks for the power state; the answer must match power_pattern
     set_level_command     template; fields: {level} (float), {level_int} (int),
                           {level_chr} (the level as one character/byte)
     query_commands        list of commands sent on connect and on each poll
@@ -112,6 +115,9 @@ class TcpSerialAmplifier(Amplifier):
         self._decode_level = _LEVEL_DECODERS[level_encoding]
         self.mute_pattern = re.compile(o["mute_pattern"]) if o.get("mute_pattern") else None
         self.mute_on_values = {str(v).upper() for v in o.get("mute_on_values", ["ON", "1"])}
+        self.power_pattern = re.compile(o["power_pattern"]) if o.get("power_pattern") else None
+        self.power_on_values = {str(v).upper() for v in o.get("power_on_values", ["ON", "1"])}
+        self.power_query_command: str | None = o.get("power_query_command")
         self.ignore_patterns = [re.compile(p) for p in o.get("ignore_patterns", [])]
         match = o.get("match", "full")
         if match not in ("full", "search"):
@@ -146,6 +152,7 @@ class TcpSerialAmplifier(Amplifier):
         self._early_muted = False
         self._rx_frames: collections.deque[Frame] = collections.deque()
         self._awaiting_echo: collections.deque[tuple[str, float]] = collections.deque()
+        self._power_waiters: list[asyncio.Future[bool]] = []
 
     def _decode(self, data: bytes) -> str:
         return data.decode(self.encoding, errors="replace")
@@ -221,6 +228,20 @@ class TcpSerialAmplifier(Amplifier):
     async def refresh(self) -> None:
         await self._send_all(self.encode_queries())
 
+    async def query_power(self, timeout: float = 2.0) -> bool | None:
+        if not (self.power_pattern and self.power_query_command):
+            return None
+        waiter: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        self._power_waiters.append(waiter)
+        try:
+            await self._send_all([self.encode_command(self.power_query_command)])
+            return await asyncio.wait_for(asyncio.shield(waiter), timeout)
+        except asyncio.TimeoutError:
+            log.warning("amplifier didn't answer the power query within %gs", timeout)
+            return None
+        finally:
+            self._power_waiters.remove(waiter)
+
     async def _send_all(self, payloads: list[bytes]) -> None:
         async with self._send_lock:
             for payload in payloads:
@@ -284,6 +305,12 @@ class TcpSerialAmplifier(Amplifier):
             log.debug("amplifier -> %r (another program's command, ignored)", message)
             return
         log.debug("amplifier -> %r", message)
+        if self.power_pattern and (m := self._match(self.power_pattern, message)):
+            powered = m.group("power").upper() in self.power_on_values
+            for waiter in self._power_waiters:
+                if not waiter.done():
+                    waiter.set_result(powered)
+            return
         update = self.parse_message(message)
         if not update:
             return
@@ -303,7 +330,7 @@ class TcpSerialAmplifier(Amplifier):
 
     def create_framer(self) -> Framer:
         """Build the framer for received data. Override for custom framing."""
-        stream_patterns = [p.pattern for p in (self.level_pattern, self.mute_pattern) if p]
+        stream_patterns = [p.pattern for p in (self.level_pattern, self.mute_pattern, self.power_pattern) if p]
         stream_patterns += [p.pattern for p in self.ignore_patterns]
         return create_framer(self.options, self.encoding, stream_patterns)
 

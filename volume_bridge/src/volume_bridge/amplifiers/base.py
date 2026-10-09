@@ -6,7 +6,8 @@ does two things:
 * accepts commands from the bridge: :meth:`Amplifier.set_level` and, if
   :attr:`Amplifier.supports_mute` is true, :meth:`Amplifier.set_mute`;
 * optionally, sends arbitrary commands for hooks (:meth:`Amplifier.send_command`,
-  e.g. to power the amplifier on) and re-reads the state (:meth:`Amplifier.refresh`);
+  e.g. to power the amplifier on), re-reads the state (:meth:`Amplifier.refresh`)
+  and tells whether the amplifier is on (:meth:`Amplifier.query_power`);
 * reports the amplifier's state whenever it learns of it -- in reply to a
   command, from a poll, or because someone turned the knob -- by calling
   :meth:`Amplifier.report`.
@@ -88,3 +89,7 @@ class Amplifier(abc.ABC):
 
     async def refresh(self) -> None:
         """Ask the amplifier for its state again, e.g. after waking it. Default: nothing."""
+
+    async def query_power(self, timeout: float = 2.0) -> bool | None:
+        """Ask whether the amplifier is on (True), in standby (False), or None if unknown."""
+        return None

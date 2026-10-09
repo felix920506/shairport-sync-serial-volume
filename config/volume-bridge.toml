@@ -92,6 +92,10 @@ control_port = 7001
 # level_pattern = 'MV(?P<level>\d{2})'
 # level_encoding = "decimal"  # or "hex", or "byte" for a raw binary value
 # mute_pattern = 'MU(?P<muted>ON|OFF)'
+# # Optional, for hooks' if_amplifier_off: how to ask whether the amp is on.
+# # power_query_command = "PW?"
+# # power_pattern = 'PW(?P<power>ON|STANDBY)'
+# # power_on_values = ["ON"]
 # # "full": a pattern must match a whole message (guards against fragments);
 # # "search": it may match anywhere in it (e.g. "@MAIN:VOL=-30,MUTE=Off").
 # match = "full"
@@ -134,6 +138,11 @@ control_port = 7001
 #   { parallel = [ A, [B, C] ] }     run branches at the same time and wait
 #                                    for all; a branch is one action or a list
 #                                    of actions run in order
+#   { if_amplifier_off = [A, B] }    run A, B only if the amplifier says it is
+#                                    off (e.g. power on + warm-up delay). Needs
+#                                    power_query_command and power_pattern in
+#                                    [amplifier.options]; if the state is
+#                                    unknown, the actions run anyway
 #
 # [hooks]
 # on_connect = [

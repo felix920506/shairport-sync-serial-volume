@@ -249,16 +249,17 @@ connect's.
 | `{ delay = 3 }` | Waits, e.g. while equipment powers up. |
 | `{ sync = "source" }` | Re-reads the amplifier's state, then sends the source's volume to it, even if they already seem to agree (an amp in standby ignores commands). `"amplifier"` sends the amplifier's volume to the source instead. Until an event's first `sync` has run, the bridge holds volume sync in both directions (see below). |
 | `{ parallel = [A, [B, C]] }` | Runs branches at the same time and waits for all of them. A branch is one action, or a list of actions run in order. |
+| `{ if_amplifier_off = [A, B] }` | Runs its actions only if the amplifier says it's off, e.g. power on plus a warm-up delay that's skipped when the amp is already on. The backend asks with `power_query_command` and reads the answer with `power_pattern` (see the tcp-serial options). If the power state can't be determined, the actions run anyway. |
 
-For example, when a phone connects, power on a McIntosh MA352 (which takes 15-20 seconds to warm up) and,
-at the same time, call a Home Assistant webhook (an automation with a Webhook trigger) to switch on the rest
+For example, when a phone connects, power on a McIntosh MA352 if it's off (it takes 15-20 seconds to warm up;
+an amp that's already on gets the phone's volume right away), and at the same time call a Home Assistant webhook (an automation with a Webhook trigger) to switch on the rest
 of the system:
 
 ```toml
 [hooks]
 on_connect = [
   { parallel = [
-    [ { send = "PWR 1" }, { delay = 20 }, { sync = "source" } ],
+    [ { if_amplifier_off = [ { send = "PWR 1" }, { delay = 20 } ] }, { sync = "source" } ],
     { shell = 'curl -sf -m 10 -X POST -H "Content-Type: application/json" -d "{\"event\": \"$VOLUME_BRIDGE_EVENT\"}" http://192.168.1.10:8123/api/webhook/airplay-living-room' },
   ] },
 ]

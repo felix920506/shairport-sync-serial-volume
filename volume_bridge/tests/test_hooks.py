@@ -43,6 +43,7 @@ def test_parse_hooks():
     ({"on_connect": [{"sync": "both"}]}, "sync"),
     ({"on_connect": [{"shell": ["ls"]}]}, "string"),
     ({"on_connect": [{"parallel": []}]}, "parallel"),
+    ({"on_connect": [{"if_amplifier_off": {"send": "PWR 1"}}]}, "if_amplifier_off"),
     ({"on_connect": [{"parallel": {"send": "x"}}]}, "parallel"),
     ({"on_connect": [{"parallel": [{"send": "x"}, [{"delay": "soon"}]]}]}, r"parallel\[1\]\[0\]: delay"),
 ])
@@ -250,3 +251,82 @@ async def test_hold_lasts_until_the_first_sync_in_parallel_branches():
     await settle(bridge)
     assert amp.commands[-1] == ("level", 80)
     await hooks.idle()
+
+
+@pytest.mark.parametrize("powered, runs", [(True, False), (False, True), (None, True)])
+async def test_if_amplifier_off(powered, runs):
+    source, amp, bridge, hooks = await make({"on_connect": [
+        {"if_amplifier_off": [{"send": "PWR 1"}, {"delay": 0.3}]},
+        {"send": "after"},
+    ]})
+    amp.powered = powered
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    hooks.fire("connect")
+    await hooks.idle()
+    elapsed = loop.time() - start
+    if runs:
+        assert amp.received_commands == [("PWR 1", False), ("after", False)]
+        assert elapsed >= 0.3
+    else:
+        assert amp.received_commands == [("after", False)]
+        assert elapsed < 0.1
+
+
+async def test_if_amplifier_off_runs_when_the_query_fails():
+    source, amp, bridge, hooks = await make({"on_connect": [{"if_amplifier_off": [{"send": "PWR 1"}]}]})
+
+    async def broken(timeout=2.0):
+        raise ConnectionError("amplifier not connected")
+
+    amp.query_power = broken
+    hooks.fire("connect")
+    await hooks.idle()
+    assert amp.received_commands == [("PWR 1", False)]
+
+
+async def test_already_on_amp_is_synced_without_waiting():
+    source, amp, bridge, hooks = await make({"on_connect": [
+        {"if_amplifier_off": [{"send": "PWR 1"}, {"delay": 5}]},
+        {"sync": "source"},
+    ]})
+    amp.powered = True
+    await settle(bridge)
+    source.volume = -6.0  # e.g. the phone's volume when it connects
+    amp.commands.clear()
+    hooks.fire("connect")
+    await asyncio.wait_for(hooks.idle(), 1)
+    assert amp.commands == [("level", 80)]
+
+
+async def test_tcp_serial_query_power():
+    from volume_bridge.amplifiers.tcp_serial import TcpSerialAmplifier
+    from test_amplifiers import wait_for
+
+    answer = {"text": b"(PWR 0)"}
+
+    async def client(reader, writer):
+        while data := await reader.read(100):
+            if b"(PWR)" in data and answer["text"]:
+                writer.write(answer["text"] + b"\r\n")
+
+    server = await asyncio.start_server(client, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    options = {"host": "127.0.0.1", "port": port, "command_interval": 0,
+               "framing": "markers", "start_marker": "(", "end_marker": ")",
+               "command_prefix": "(", "command_suffix": ")",
+               "power_query_command": "PWR", "power_pattern": r"PWR\s*(?P<power>[01])"}
+    amp = TcpSerialAmplifier(options)
+    unconfigured = TcpSerialAmplifier({"host": "127.0.0.1", "port": port})
+    await amp.start()
+    try:
+        await wait_for(lambda: amp._writer is not None)
+        assert await amp.query_power() is False
+        answer["text"] = b"(PWR 1)"
+        assert await amp.query_power() is True
+        answer["text"] = b""
+        assert await amp.query_power(timeout=0.1) is None
+        assert await unconfigured.query_power() is None
+    finally:
+        await amp.stop()
+        server.close()

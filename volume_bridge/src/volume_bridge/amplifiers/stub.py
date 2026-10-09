@@ -16,6 +16,8 @@ Options:
     step           step for up/down (default 1)
     min_level, max_level  clamp range for knob changes (default 0 / 100)
     supports_mute  whether to accept set_mute (default true)
+    powered        power state reported to hooks: true, false, or unset (unknown).
+                   The commands "PWR 1" / "PWR 0" (send_command) switch it.
     control_host   address for the control port (default 0.0.0.0)
     control_port   TCP port for the simulated front panel (default: disabled)
 """
@@ -43,6 +45,8 @@ class StubAmplifier(Amplifier):
         self._server: asyncio.base_events.Server | None = None
         #: Commands received through send_command (for hooks), as (text, raw).
         self.received_commands: list[tuple[str, bool]] = []
+        powered = self.options.get("powered")
+        self.powered: bool | None = None if powered is None else bool(powered)
 
     async def start(self) -> None:
         port = self.options.get("control_port")
@@ -74,6 +78,11 @@ class StubAmplifier(Amplifier):
     async def send_command(self, command: str, raw: bool = False) -> None:
         log.info("stub amplifier: command %r%s", command, " (raw)" if raw else "")
         self.received_commands.append((command, raw))
+        if command in ("PWR 1", "PWR 0"):
+            self.powered = command == "PWR 1"
+
+    async def query_power(self, timeout: float = 2.0) -> bool | None:
+        return self.powered
 
     async def refresh(self) -> None:
         self._emit()

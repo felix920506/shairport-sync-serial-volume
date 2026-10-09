@@ -69,12 +69,19 @@ mute_off_command = "MUT 0"
 query_commands = ["STA 1", "VOL", "MUT"]
 
 # Status: the amp's acknowledgements, query replies and pushed updates all
-# look like "(VOL 65)" / "(MUT 1)". "(VOL U)", "(VOL D)", "(PWR 1)", "(ERROR …)",
-# and the power-on banner don't match and are ignored.
+# look like "(VOL 65)" / "(MUT 1)". "(VOL U)", "(VOL D)", "(ERROR …)" and the
+# power-on banner don't match and are ignored.
 level_pattern = 'VOL\s*(?P<level>\d{1,3})'
 mute_pattern = 'MUT\s*(?P<muted>[01])'
 mute_on_values = ["1"]
 match = "full"
+
+# Power: "(PWR)" is answered with "(PWR 1)" / "(PWR 0)", also in standby. Lets
+# hooks skip the power-on and warm-up when the amp is already on
+# (if_amplifier_off).
+power_query_command = "PWR"
+power_pattern = 'PWR\s*(?P<power>[01])'
+power_on_values = ["1"]
 
 # Status is pushed, so polling is only a safety net: it resends "(STA 1)" in
 # case another program on a shared port turned status updates off, and it
@@ -90,8 +97,8 @@ own_commands_echoed = false
 ignore_patterns = []
 
 # Wake the amp when a source connects. In standby the MA352 rejects every
-# command except power, so turn it on, wait until it has warmed up (15-20 s),
-# then re-read its state (re-enabling status updates) and bring it to the
+# command except power, so if it is off, turn it on and wait until it has warmed
+# up (15-20 s; skipped when it is already on), then re-read its state (re-enabling status updates) and bring it to the
 # source's volume. Until that sync, the bridge holds volume sync in both
 # directions, so moving the slider during the warm-up doesn't snap back; the
 # sync applies the slider's latest position.
@@ -106,7 +113,7 @@ ignore_patterns = []
 # [hooks]
 # on_connect = [
 #   { parallel = [
-#     [ { send = "PWR 1" }, { delay = 20 }, { sync = "source" } ],
+#     [ { if_amplifier_off = [ { send = "PWR 1" }, { delay = 20 } ] }, { sync = "source" } ],
 #     { shell = 'curl -sf -m 10 -X POST -H "Content-Type: application/json" -d "{\"event\": \"$VOLUME_BRIDGE_EVENT\", \"source\": \"$VOLUME_BRIDGE_SOURCE\"}" http://192.168.1.10:8123/api/webhook/airplay-living-room' },
 #   ] },
 # ]
