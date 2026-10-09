@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "volume-bridge"
+version = "0.1.0"
+description = "Bridges Shairport Sync (AirPlay) volume to an external amplifier, both ways."
+requires-python = ">=3.11"
+dependencies = ["dbus-fast>=2.21"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+volume-bridge = "volume_bridge.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
