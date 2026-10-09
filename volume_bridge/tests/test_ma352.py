@@ -91,7 +91,9 @@ async def test_ma352_commands_status_and_knob(ma352):
     amp = create_amplifier(config.amplifier_type, options)
     await amp.start()
     try:
-        await wait_for(lambda: amp.state == AmplifierState(30, False))
+        # The state is already (30, unmuted) after the VOL reply, before MUT
+        # has been sent (commands are spaced by command_interval).
+        await wait_for(lambda: len(sim.received) >= 3 and amp.state == AmplifierState(30, False))
         assert sim.status_enabled
         assert sim.received[:3] == ["STA 1", "VOL", "MUT"]
 
