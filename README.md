@@ -104,29 +104,50 @@ Two-way sync is prone to feedback loops. The bridge uses three mechanisms:
 
 ### Connecting the real amplifier
 
-The built-in `tcp-line` backend fits typical RS-232 text protocols (`MV45\r`, `MV?\r` → `MV45\r`)
-reached through a serial-to-Ethernet adapter or `ser2net` in raw mode. It is driven by templates and
-regexes in `config/volume-bridge.toml`; see the commented example there. It reconnects automatically,
-can poll, and paces commands.
+The built-in `tcp-serial` backend talks to the amplifier through a serial-to-Ethernet adapter, `ser2net` in
+raw mode, or a serial multiplexer. The protocol is described in `config/volume-bridge.toml` (see the commented
+example there): how messages are framed, command templates, and regexes that extract volume and mute. It
+reconnects automatically, can poll, and paces commands.
+
+**Framing.** Not every RS-232 protocol uses lines, so framing (splitting the byte stream into messages) is
+separate from parsing:
+
+| `framing` | Messages are... | Example |
+| --- | --- | --- |
+| `delimited` (default) | ended by any of `receive_terminators` | `MV45\r`, `VOL 10;` |
+| `fixed` | exactly `frame_length` bytes; resynchronised after `frame_gap` of silence | 6-byte binary frames |
+| `markers` | between `start_marker` and `end_marker`, plus `trailer_length` bytes | `STX V 0x28 ETX checksum` |
+| `stream` | not delimited at all; found by scanning for the configured patterns | `MV41MV42MUON` |
+
+With `stream`, a match that might still grow (`VOL\d+` before the last digit has arrived) is accepted after
+`frame_gap` seconds of silence. Fixed-width patterns (`MV\d{2}`) don't wait. Bytes that match no pattern
+are skipped.
+
+Patterns match the whole message by default (`match = "full"`), which stops fragments from parsing as status
+by accident. Use `match = "search"` when the value sits inside a longer message
+(`@MAIN:PWR=On,VOL=-30,MUTE=Off`). For binary protocols, set `encoding = "latin-1"` (one character per byte)
+and use `level_encoding = "byte"` or `"hex"`, `{level_chr}` in `set_level_command`, and `\u0002`-style escapes
+in the TOML strings.
 
 **Status updates from the amplifier.** Many amps send status out of the RS-232 port on their own when
 their knob or IR remote is used, often one line per step. Every received line is treated as an
 independent status report. The backend never assumes a line is the reply to the command it just sent.
 So unsolicited updates simply flow through to the AirPlay slider, and you don't need polling
-(`poll_interval = 0`). Received lines may end in CR, LF or CRLF (`receive_terminators`), may arrive
-split or batched, and status that isn't about volume or mute is ignored.
+(`poll_interval = 0`). Messages may arrive split across reads or several to a read, and status that isn't
+about volume or mute is ignored.
 
 **Shared port / serial multiplexer.** When several programs share one physical RS-232 port and see each
 other's traffic:
 
 - *Other programs' volume changes* show up as amp status and move the AirPlay slider, as they should.
   Replies to *their* queries are status too, and are used.
-- *Other programs' commands* are ignored when they can't be status. Patterns must match the whole line,
-  copies of our own query commands (`MV?`) are skipped, and `ignore_patterns` covers commands that would
-  otherwise look like status. Whole-line matching also means interleaved fragments don't parse by
-  accident. Long unterminated noise is dropped (`max_line_length`).
+- *Other programs' commands* are ignored when they can't be status. Copies of our own query commands
+  (`MV?`) are skipped, and `ignore_patterns` covers commands that would otherwise look like status. With
+  `framing = "stream"`, ignore patterns are also scanned for, so a command is consumed as a unit and not
+  mined for status-looking pieces. Unframeable noise is dropped (`max_frame_length`).
 - *Our own commands echoed back* by the multiplexer: set `own_commands_echoed = true`. Each command we send
-  then cancels one identical line received within `echo_timeout`. That way, if the amp clamps or refuses a
+  is run through the same framer, and the resulting message cancels one identical message received within
+  `echo_timeout`. That way, if the amp clamps or refuses a
   value, our echoed `MV99` isn't mistaken for the amp being at 99. Leave it `false` if your multiplexer
   doesn't echo to the sender, or the amp's real confirmation could be dropped when it has the same text.
 - Each command goes out in a single write and commands are paced (`command_interval`), so we don't
@@ -137,26 +158,33 @@ On protocols where commands and status are identical text (`MV30` either way), a
 command is briefly taken as status before the amp's own reply arrives. That's harmless: the amp's reply
 corrects it if the amp clamps or refuses the value.
 
-For anything else (binary frames, checksums, login handshakes, a local `/dev/tty*`), write a backend:
+Checksums, handshakes and other protocol details go in a subclass. Override `encode_command`,
+`verify_frame`, `parse_message`, `create_framer` (custom framing, a subclass of
+`volume_bridge.amplifiers.framing.Framer`) or `open_transport` (e.g. a local `/dev/tty*`). For example, for
+`STX <cmd> <value> ETX <checksum>`:
 
 ```python
 # amplifiers/my_amp.py
-from volume_bridge.amplifiers.tcp_line import TcpLineAmplifier
+from volume_bridge.amplifiers.tcp_serial import TcpSerialAmplifier
 
-class MyAmplifier(TcpLineAmplifier):
-    def encode_set_level(self, level):
-        body = bytes([0x02, 0x10, int(level)])
-        return body + bytes([sum(body) & 0xFF])
+class MyAmplifier(TcpSerialAmplifier):
+    def encode_command(self, command):
+        body = command.encode("latin-1")
+        return b"\x02" + body + b"\x03" + bytes([sum(body) & 0xFF])
 
-    async def read_message(self, reader):
-        frame = await reader.readexactly(4)
-        return frame.hex()
-
-    def parse_message(self, message):
-        frame = bytes.fromhex(message)
-        if frame[1] == 0x10:
-            return {"level": frame[2]}
-        return None
+    def verify_frame(self, frame):           # frame.raw includes markers + trailer
+        return frame.raw[-1] == sum(frame.payload) & 0xFF
+```
+```toml
+[amplifier.options]
+encoding = "latin-1"
+framing = "markers"
+start_marker = "\u0002"
+end_marker = "\u0003"
+trailer_length = 1
+set_level_command = "V{level_chr}"
+level_pattern = "V(?P<level>.)"
+level_encoding = "byte"
 ```
 
 Or subclass `volume_bridge.amplifiers.base.Amplifier` directly and implement `start`, `stop`,

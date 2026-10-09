@@ -23,7 +23,7 @@ bus = "system"                # "system", "session", or a D-Bus address
 service = "org.gnome.ShairportSync"
 
 [amplifier]
-# "stub", "tcp-line", or "your.module:YourAmplifierClass"
+# "stub", "tcp-serial", or "your.module:YourAmplifierClass"
 type = "stub"
 
 # The amplifier's own volume scale. AirPlay's slider (0..100%) maps linearly
@@ -46,11 +46,11 @@ control_port = 7001
 
 # ---------------------------------------------------------------------------
 # Example: an amplifier on a serial-to-Ethernet adapter (e.g. ser2net in raw
-# mode) with a Denon-style text protocol. Replace the [amplifier] sections
-# above with something like this, adjusted to your amplifier's manual.
+# mode) or a serial multiplexer. Replace the [amplifier] sections above with
+# something like this, adjusted to your amplifier's manual.
 #
 # [amplifier]
-# type = "tcp-line"
+# type = "tcp-serial"
 #
 # [amplifier.scale]
 # min_level = 0
@@ -61,22 +61,45 @@ control_port = 7001
 # [amplifier.options]
 # host = "192.168.1.50"
 # port = 4001
-# line_ending = "\r"
-# set_level_command = "MV{level_int:02d}"
+#
+# # --- Framing: how messages are separated in the received byte stream ---
+# # "delimited": messages end in any of receive_terminators (CR/LF lines, ";" ...)
+# # "fixed":     every message is frame_length bytes
+# # "markers":   start_marker ... end_marker [+ trailer_length bytes, e.g. checksum]
+# # "stream":    no delimiters at all; messages are found by scanning the stream
+# #              for level_pattern / mute_pattern / ignore_patterns
+# framing = "delimited"
+# receive_terminators = "\r\n"
+# # frame_length = 6
+# # start_marker = "\u0002"
+# # end_marker = "\u0003"
+# # trailer_length = 1
+# # frame_gap = 0.05          # silence that completes/abandons a partial message
+# # encoding = "latin-1"      # one character per byte, for binary protocols
+#
+# # --- Commands ---
+# command_prefix = ""
+# command_suffix = "\r"       # use "" for protocols without terminators
+# set_level_command = "MV{level_int:02d}"   # also {level}, {level_chr} (raw byte)
 # query_commands = ["MV?", "MU?"]
-# # Patterns must match a whole received line.
-# level_pattern = 'MV(?P<level>\d{2})'
 # mute_on_command = "MUON"
 # mute_off_command = "MUOFF"
+#
+# # --- Status in received messages ---
+# level_pattern = 'MV(?P<level>\d{2})'
+# level_encoding = "decimal"  # or "hex", or "byte" for a raw binary value
 # mute_pattern = 'MU(?P<muted>ON|OFF)'
+# # "full": a pattern must match a whole message (guards against fragments);
+# # "search": it may match anywhere in it (e.g. "@MAIN:VOL=-30,MUTE=Off").
+# match = "full"
+#
 # # Amps that push status when the knob/remote is used need no polling.
 # poll_interval = 0           # seconds; use only if the amp doesn't push changes
 # command_interval = 0.05
-# receive_terminators = "\r\n"  # any of these ends a received line
 #
-# # Shared port / serial multiplexer (several programs on one RS-232 port):
-# # set to true if the multiplexer echoes our own commands back to us.
+# # --- Shared port / serial multiplexer (several programs on one RS-232 port) ---
+# # true if the multiplexer echoes our own commands back to us.
 # own_commands_echoed = false
-# # Lines from other programs that would match the patterns above but are
+# # Messages from other programs that would match the patterns above but are
 # # commands, not status (not needed when commands and status differ).
 # ignore_patterns = []
