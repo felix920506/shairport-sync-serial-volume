@@ -23,6 +23,14 @@ docker compose up --build
 Edit `docker-compose.yaml` first: set `ALSA_DEVICE` (`aplay -l` on the host lists cards; use `hw:CARD=...`)
 and `SPS_NAME`. Host networking and `/dev/snd` are required.
 
+**USB DACs that come and go.** Many USB DACs drop off the bus when switched off or to another input.
+`docker-compose.yaml` bind-mounts the host's `/dev/snd` (with a cgroup rule for ALSA devices) instead of
+passing `devices: /dev/snd`, which would copy the device nodes once at start. That way a DAC that reappears
+is usable right away. Name the card (`hw:CARD=N05XD`), because its number can change when it reappears.
+If the DAC is missing when playback starts, or disappears during playback, Shairport Sync exits on purpose.
+The container then restarts (`restart: unless-stopped`), and the AirPlay session ends. On a desktop host,
+also keep PipeWire/PulseAudio off the DAC: if they hold it open, Shairport Sync can't use it.
+
 If the build is slow to download packages, pick a nearby mirror from
 [mirrors.alpinelinux.org](https://mirrors.alpinelinux.org). The default CDN can be very slow from some
 networks. Pass it as a build argument, e.g. in a `docker-compose.override.yaml`:

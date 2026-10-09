@@ -6,8 +6,14 @@ services:
     restart: unless-stopped
     # AirPlay 2 needs mDNS, PTP (UDP 319/320) and dynamic RTP ports: use host networking.
     network_mode: host
-    devices:
-      - /dev/snd
+    # Sound devices are bind-mounted (not passed with "devices:", which copies the
+    # device nodes once at start) so a USB DAC that disappears and reappears --
+    # turned off, switched to another input -- is visible again without a
+    # restart. The cgroup rule allows access to ALSA devices (major 116).
+    # Use a card name, e.g. ALSA_DEVICE: "hw:CARD=N05XD", not a number, which
+    # can change when the card reappears.
+    device_cgroup_rules:
+      - "c 116:* rmw"
     environment:
       SPS_NAME: "Living Room"
       ALSA_DEVICE: "hw:0"
@@ -15,6 +21,7 @@ services:
       ENABLE_AVAHI: "1"
       ENABLE_NQPTP: "1"
     volumes:
+      - /dev/snd:/dev/snd
       - ./config/shairport-sync.conf:/etc/shairport-sync.conf:ro
       - ./config/volume-bridge.toml:/etc/volume-bridge.toml:ro
       # Custom amplifier backends: put modules here and use type = "my_amp:MyAmplifier".
