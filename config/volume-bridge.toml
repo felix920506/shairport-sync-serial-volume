@@ -21,6 +21,9 @@ use_amplifier_mute = true
 [shairport]
 bus = "system"                # "system", "session", or a D-Bus address
 service = "org.gnome.ShairportSync"
+# UDP port for Shairport Sync's metadata (metadata.socket_port in
+# shairport-sync.conf); tells the bridge when a source connects/disconnects.
+metadata_port = 5555
 
 [amplifier]
 # "stub", "tcp-serial", or "your.module:YourAmplifierClass"

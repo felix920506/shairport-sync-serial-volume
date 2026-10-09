@@ -16,6 +16,8 @@ class Config:
     log_level: str = "INFO"
     shairport_bus: str = "system"
     shairport_service: str = "org.gnome.ShairportSync"
+    #: UDP port on 127.0.0.1 where Shairport Sync sends metadata (0 = don't listen).
+    shairport_metadata_port: int = 5555
     bridge: BridgeSettings = field(default_factory=BridgeSettings)
     amplifier_type: str = "stub"
     amplifier_scale: LevelScale = field(default_factory=LevelScale)
@@ -36,7 +38,7 @@ def parse_config(data: dict[str, Any]) -> Config:
 
     bridge = dict(data.get("bridge", {}))
     log_level = bridge.pop("log_level", "INFO")
-    shairport = _pick(data.get("shairport", {}), ("bus", "service"), "shairport")
+    shairport = _pick(data.get("shairport", {}), ("bus", "service", "metadata_port"), "shairport")
 
     amplifier = dict(data.get("amplifier", {}))
     amp_type = amplifier.pop("type", "stub")
@@ -50,6 +52,7 @@ def parse_config(data: dict[str, Any]) -> Config:
         log_level=str(log_level).upper(),
         shairport_bus=shairport.get("bus", "system"),
         shairport_service=shairport.get("service", "org.gnome.ShairportSync"),
+        shairport_metadata_port=int(shairport.get("metadata_port", 5555)),
         bridge=BridgeSettings(**_pick(
             bridge, ("source_echo_window", "amplifier_echo_window", "max_echo_window", "use_amplifier_mute"), "bridge")),
         amplifier_type=amp_type,

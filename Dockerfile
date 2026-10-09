@@ -40,7 +40,8 @@ RUN git init -q . \
  && git checkout -q FETCH_HEAD
 WORKDIR /src/shairport-sync/build
 # Deliberately minimal: ALSA output only, no soxr, no convolution, no loudness DSP.
-# The D-Bus interface is what the volume bridge talks to.
+# The D-Bus interface is what the volume bridge talks to; the metadata UDP
+# socket tells it when a source connects or disconnects.
 RUN autoreconf -i .. \
  && ../configure \
       --sysconfdir=/etc \
@@ -50,6 +51,7 @@ RUN autoreconf -i .. \
       --with-ssl=openssl \
       --with-ffmpeg \
       --with-metadata \
+      --with-metadata-multicast \
       --with-dbus-interface \
  && make -j"$(nproc)" \
  && DESTDIR=/install make install

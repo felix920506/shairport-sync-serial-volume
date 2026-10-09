@@ -220,13 +220,15 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[test]'
   you must also make the host's Avahi reachable over D-Bus, so the default (in-container Avahi) is
   simpler.
 - **The volume can only be pushed to a connected source.** The bridge pushes amplifier changes while a
-  source is connected to this speaker (Shairport Sync's `Client`, even if nothing is playing) or a session
-  is active (Shairport Sync's "active" state). A session begins when play starts and ends
-  `active_state_timeout` after play stops. That timeout is raised to 15 minutes in
-  `config/shairport-sync.conf` so pauses count as active. With no source connected the bridge leaves the
-  source alone. When the next session starts, the source's volume wins and the amplifier follows it. This
-  is also what keeps the amp from jumping to Shairport Sync's idle default (0 dB = full scale) after a
-  restart.
+  source is connected to this speaker, even if nothing is playing. D-Bus doesn't say whether one is
+  connected, so the bridge listens for Shairport Sync's UDP metadata on `127.0.0.1:5555` (`socket_address`
+  / `socket_port` in `config/shairport-sync.conf`, `metadata_port` in the bridge config), which announces
+  each connect and disconnect. With no source connected the bridge leaves the source alone: Shairport Sync
+  would drop the change anyway, and its stored volume is stale. When the next session starts, the source's
+  volume wins and the amplifier follows it. This is also what keeps the amp from jumping to Shairport Sync's
+  idle default (0 dB = full scale) after a restart. Without the metadata socket the bridge falls back to
+  Shairport Sync's "active" state, which begins when play starts and ends `active_state_timeout` (raised to
+  15 minutes here) after play stops.
 - **In a multi-room group**, a volume change from the amplifier sets *this speaker's* volume in the
   group. The group's master volume on the source adjusts the way it does when you move one speaker's slider.
 - AirPlay 2 remote control in Shairport Sync is experimental upstream. If an update breaks it, pin

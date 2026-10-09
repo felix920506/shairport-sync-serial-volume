@@ -19,7 +19,8 @@ async def run(config_path: str) -> int:
     logging.getLogger().setLevel(config.log_level)
 
     amplifier = create_amplifier(config.amplifier_type, config.amplifier_options)
-    source = ShairportSync(bus=config.shairport_bus, service=config.shairport_service)
+    source = ShairportSync(bus=config.shairport_bus, service=config.shairport_service,
+                           metadata_port=config.shairport_metadata_port)
     bridge = VolumeBridge(source, amplifier, config.amplifier_scale, config.bridge)
     source.on_volume = bridge.on_source_volume
     source.on_active = bridge.on_source_active

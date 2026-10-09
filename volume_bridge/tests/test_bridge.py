@@ -17,10 +17,18 @@ class FakeSource:
     def __init__(self, volume=-15.0):
         self.volume = volume
         self.active = True
-        self.connected = False
+        self._connected = None  # None: connected while active
         self.sent = []
         self.bridge = None
         self.fail = False
+
+    @property
+    def connected(self):
+        return self.active if self._connected is None else self._connected
+
+    @connected.setter
+    def connected(self, value):
+        self._connected = value
 
     async def set_volume(self, volume):
         if self.fail:
@@ -232,6 +240,19 @@ async def test_knob_is_pushed_to_connected_source_that_is_not_playing():
     amp.knob(70)
     await settle(bridge)
     assert source.sent == [-9.0]
+
+
+async def test_disconnected_source_is_left_alone_while_session_lingers():
+    """Regression: after the source disconnects, Shairport Sync stays "active"
+    for active_state_timeout and drops volume changes. The knob must neither be
+    pushed nor be reverted to the source's stale volume."""
+    source, amp, bridge = await make()
+    source.connected = False
+    amp.knob(10)
+    await settle(bridge)
+    assert source.sent == []
+    assert amp.commands == []
+    assert amp.state.level == 10
 
 
 async def test_airplay_change_event_is_followed_even_if_not_active():

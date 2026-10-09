@@ -21,11 +21,10 @@ loops. Three mechanisms work together:
 3. **Latest-value senders.** Bursts (dragging a slider, spinning a knob) are
    coalesced: while a send is in flight only the most recent request is kept.
 
-The source's volume only means something while a source is connected (a
-play session is active, or a source is connected but not playing). With no
-source, Shairport Sync reports a stale/default value and can't pass a volume
-on to anyone, so the bridge neither pushes to the source nor follows its
-*stored* value then. Actual volume change events are always followed, since
+The source's volume only means something while a source is connected
+(playing or not). With no source, Shairport Sync reports a stale/default
+value and silently drops volume changes, so the bridge neither pushes to the
+source nor follows its *stored* value then. Actual volume change events are always followed, since
 only a source (or the bridge itself) produces them.
 """
 
@@ -55,6 +54,7 @@ class VolumeSource(Protocol):
     @property
     def active(self) -> bool: ...
 
+    #: True while a source is connected and can take a volume change.
     @property
     def connected(self) -> bool: ...
 
@@ -279,8 +279,8 @@ class VolumeBridge:
 
     @property
     def _source_reachable(self) -> bool:
-        # A connected source takes volume changes even while it isn't playing.
-        return self.source.active or self.source.connected
+        # Not "active": that outlasts a disconnect by active_state_timeout.
+        return self.source.connected
 
     @property
     def _amp_echo_expected(self) -> bool:
