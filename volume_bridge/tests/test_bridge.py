@@ -17,6 +17,7 @@ class FakeSource:
     def __init__(self, volume=-15.0):
         self.volume = volume
         self.active = True
+        self.connected = False
         self.sent = []
         self.bridge = None
         self.fail = False
@@ -222,6 +223,15 @@ async def test_knob_while_idle_is_overridden_by_source_at_session_start():
     bridge.on_source_active(True)
     await settle(bridge)
     assert amp.commands == [("level", 50)]
+
+
+async def test_knob_is_pushed_to_connected_source_that_is_not_playing():
+    """A source that is connected but paused/not yet playing still takes volume."""
+    source, amp, bridge = await make(active=False)
+    source.connected = True
+    amp.knob(70)
+    await settle(bridge)
+    assert source.sent == [-9.0]
 
 
 async def test_airplay_change_event_is_followed_even_if_not_active():

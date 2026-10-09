@@ -21,11 +21,12 @@ loops. Three mechanisms work together:
 3. **Latest-value senders.** Bursts (dragging a slider, spinning a knob) are
    coalesced: while a send is in flight only the most recent request is kept.
 
-The source's volume only means something while a play session is active.
-Outside a session Shairport Sync reports a stale/default value and can't pass
-a volume on to any source, so the bridge neither pushes to the source nor
-follows its *stored* value then. Actual volume change events are always
-followed, since only a source (or the bridge itself) produces them.
+The source's volume only means something while a source is connected (a
+play session is active, or a source is connected but not playing). With no
+source, Shairport Sync reports a stale/default value and can't pass a volume
+on to anyone, so the bridge neither pushes to the source nor follows its
+*stored* value then. Actual volume change events are always followed, since
+only a source (or the bridge itself) produces them.
 """
 
 from __future__ import annotations
@@ -53,6 +54,9 @@ class VolumeSource(Protocol):
 
     @property
     def active(self) -> bool: ...
+
+    @property
+    def connected(self) -> bool: ...
 
     async def set_volume(self, volume: float) -> None: ...
 
@@ -259,9 +263,9 @@ class VolumeBridge:
 
     def _follow_amplifier(self, state: AmplifierState) -> None:
         volume = self.source.volume
-        if volume is None or not self.source.active:
-            # No session: there's no source to tell. When a session starts,
-            # the amplifier is brought to the source's volume.
+        if volume is None or not self._source_reachable:
+            # No source to tell. When a session starts, the amplifier is
+            # brought to the source's volume.
             return
         # Same reasoning as in _follow_source.
         if self._to_source.busy:
@@ -272,6 +276,11 @@ class VolumeBridge:
         log.info("amplifier level %g%s -> airplay volume %.2f",
                  state.level, " (muted)" if state.muted else "", target)
         self._to_source.request(target)
+
+    @property
+    def _source_reachable(self) -> bool:
+        # A connected source takes volume changes even while it isn't playing.
+        return self.source.active or self.source.connected
 
     @property
     def _amp_echo_expected(self) -> bool:
@@ -298,7 +307,7 @@ class VolumeBridge:
         # We pushed a volume to the source; if a user moved the slider
         # meanwhile, the source wins.
         volume = self.source.volume
-        if volume is not None and self.source.active and not self._source_send_failed:
+        if volume is not None and self._source_reachable and not self._source_send_failed:
             self._follow_source(volume)
 
     # -- senders ----------------------------------------------------------------

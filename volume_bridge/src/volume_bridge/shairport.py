@@ -9,6 +9,9 @@
   Shairport Sync then applies the new volume locally, which comes back to us
   as an AirplayVolume change (handled as an echo by the bridge).
 * ``org.gnome.ShairportSync.Active`` -- whether a play session is active.
+* ``org.gnome.ShairportSync.RemoteControl.Client`` -- the address of the
+  connected source, if any. A connected source takes volume changes even
+  while nothing is playing.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ class ShairportSync:
         self._remote: ProxyInterface | None = None
         self._volume: float | None = None
         self._active = False
+        self._client = ""
 
     @property
     def volume(self) -> float | None:
@@ -46,6 +50,11 @@ class ShairportSync:
     @property
     def active(self) -> bool:
         return self._active
+
+    @property
+    def connected(self) -> bool:
+        """True while a source is connected (playing or not)."""
+        return bool(self._client)
 
     async def connect(self, retry_interval: float = 1.0, timeout: float | None = None) -> None:
         """Connect, waiting for Shairport Sync to appear on the bus."""
@@ -77,8 +86,10 @@ class ShairportSync:
         )
         self._volume = await self._remote.get_airplay_volume()
         self._active = await main.get_active()
-        log.info("connected to Shairport Sync (airplay volume %.2f, %s)",
-                 self._volume, "active" if self._active else "idle")
+        self._client = await self._remote.get_client()
+        log.info("connected to Shairport Sync (airplay volume %.2f, %s, %s)",
+                 self._volume, "active" if self._active else "idle",
+                 f"source {self._client}" if self._client else "no source")
 
     async def _open_bus(self) -> MessageBus:
         if self.bus_name == "system":
@@ -94,6 +105,11 @@ class ShairportSync:
                 self._volume = volume
                 log.debug("airplay volume is now %.2f", volume)
                 self.on_volume(volume)
+        if interface == REMOTE_INTERFACE and "Client" in changed:
+            client = str(changed["Client"].value)
+            if client != self._client:
+                self._client = client
+                log.info("source %s", f"{client} connected" if client else "disconnected")
         if interface == MAIN_INTERFACE and "Active" in changed:
             self._active = bool(changed["Active"].value)
             log.info("play session %s", "active" if self._active else "ended")
