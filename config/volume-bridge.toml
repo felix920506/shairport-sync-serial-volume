@@ -11,6 +11,9 @@ log_level = "INFO"            # DEBUG shows every echo the bridge ignores
 source_echo_window = 1.5
 # After commanding the amplifier, ignore its reports for this long.
 amplifier_echo_window = 1.0
+# Each report with a new value (e.g. an amp streaming status while it ramps)
+# restarts the window above, but never past this many seconds in total.
+max_echo_window = 10.0
 # If the amplifier backend supports mute: AirPlay mute (slider at the bottom)
 # mutes the amplifier, and muting on the amplifier mutes on the source.
 use_amplifier_mute = true
@@ -61,9 +64,19 @@ control_port = 7001
 # line_ending = "\r"
 # set_level_command = "MV{level_int:02d}"
 # query_commands = ["MV?", "MU?"]
-# level_pattern = '^MV(?P<level>\d{2})$'
+# # Patterns must match a whole received line.
+# level_pattern = 'MV(?P<level>\d{2})'
 # mute_on_command = "MUON"
 # mute_off_command = "MUOFF"
-# mute_pattern = '^MU(?P<muted>ON|OFF)$'
-# poll_interval = 0           # seconds; use if the amp doesn't push changes
+# mute_pattern = 'MU(?P<muted>ON|OFF)'
+# # Amps that push status when the knob/remote is used need no polling.
+# poll_interval = 0           # seconds; use only if the amp doesn't push changes
 # command_interval = 0.05
+# receive_terminators = "\r\n"  # any of these ends a received line
+#
+# # Shared port / serial multiplexer (several programs on one RS-232 port):
+# # set to true if the multiplexer echoes our own commands back to us.
+# own_commands_echoed = false
+# # Lines from other programs that would match the patterns above but are
+# # commands, not status (not needed when commands and status differ).
+# ignore_patterns = []

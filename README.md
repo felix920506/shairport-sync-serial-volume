@@ -93,9 +93,12 @@ Two-way sync is prone to feedback loops. The bridge uses three mechanisms:
   forwarded only if the other side actually disagrees, so rounding differences never cause traffic.
 - **Echo windows.** After the bridge commands one side, reports from that side are ignored for a short
   window (`source_echo_window`, `amplifier_echo_window`). This absorbs Shairport Sync's ramped AirPlay 2
-  notifications and amplifiers that report intermediate steps. When the window closes, the bridge checks
-  that side once more. If it ended up elsewhere (the user moved it meanwhile, or the device clamped
-  or refused the value), the bridge follows it.
+  notifications and amplifiers that report intermediate steps. Each report with a *new* value restarts
+  the window, up to `max_echo_window` in total. That way an amp that ramps slowly and reports every step
+  can't outlast the window, and an amp that is polled and keeps repeating the same value can't hold it
+  open. The amplifier's window closes as soon as it reports the commanded level. When a window closes,
+  the bridge checks that side once more. If it ended up elsewhere (the user moved it meanwhile, or the
+  device clamped or refused the value), the bridge follows it.
 - **Coalescing.** While a send is in flight, only the most recent request is kept, so dragging a slider
   doesn't queue dozens of serial commands.
 
@@ -105,6 +108,34 @@ The built-in `tcp-line` backend fits typical RS-232 text protocols (`MV45\r`, `M
 reached through a serial-to-Ethernet adapter or `ser2net` in raw mode. It is driven by templates and
 regexes in `config/volume-bridge.toml`; see the commented example there. It reconnects automatically,
 can poll, and paces commands.
+
+**Status updates from the amplifier.** Many amps send status out of the RS-232 port on their own when
+their knob or IR remote is used, often one line per step. Every received line is treated as an
+independent status report. The backend never assumes a line is the reply to the command it just sent.
+So unsolicited updates simply flow through to the AirPlay slider, and you don't need polling
+(`poll_interval = 0`). Received lines may end in CR, LF or CRLF (`receive_terminators`), may arrive
+split or batched, and status that isn't about volume or mute is ignored.
+
+**Shared port / serial multiplexer.** When several programs share one physical RS-232 port and see each
+other's traffic:
+
+- *Other programs' volume changes* show up as amp status and move the AirPlay slider, as they should.
+  Replies to *their* queries are status too, and are used.
+- *Other programs' commands* are ignored when they can't be status. Patterns must match the whole line,
+  copies of our own query commands (`MV?`) are skipped, and `ignore_patterns` covers commands that would
+  otherwise look like status. Whole-line matching also means interleaved fragments don't parse by
+  accident. Long unterminated noise is dropped (`max_line_length`).
+- *Our own commands echoed back* by the multiplexer: set `own_commands_echoed = true`. Each command we send
+  then cancels one identical line received within `echo_timeout`. That way, if the amp clamps or refuses a
+  value, our echoed `MV99` isn't mistaken for the amp being at 99. Leave it `false` if your multiplexer
+  doesn't echo to the sender, or the amp's real confirmation could be dropped when it has the same text.
+- Each command goes out in a single write and commands are paced (`command_interval`), so we don't
+  split a command across another program's traffic or flood the shared line. Keep polling off if the
+  amp pushes updates.
+
+On protocols where commands and status are identical text (`MV30` either way), another program's
+command is briefly taken as status before the amp's own reply arrives. That's harmless: the amp's reply
+corrects it if the amp clamps or refuses the value.
 
 For anything else (binary frames, checksums, login handshakes, a local `/dev/tty*`), write a backend:
 
