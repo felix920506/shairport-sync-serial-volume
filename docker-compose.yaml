@@ -1,0 +1,26 @@
+services:
+  shairport-sync:
+    build: .
+    image: shairport-sync-serial-volume
+    container_name: shairport-sync
+    restart: unless-stopped
+    # AirPlay 2 needs mDNS, PTP (UDP 319/320) and dynamic RTP ports: use host networking.
+    network_mode: host
+    devices:
+      - /dev/snd
+    environment:
+      SPS_NAME: "Living Room"
+      ALSA_DEVICE: "hw:0"
+      # Set to 0 if the host already runs avahi-daemon / nqptp.
+      ENABLE_AVAHI: "1"
+      ENABLE_NQPTP: "1"
+    volumes:
+      - ./config/shairport-sync.conf:/etc/shairport-sync.conf:ro
+      - ./config/volume-bridge.toml:/etc/volume-bridge.toml:ro
+      # Custom amplifier backends: put modules here and use type = "my_amp:MyAmplifier".
+      # - ./amplifiers:/opt/amplifiers:ro
+    # environment entry to go with the mount above:
+    #   PYTHONPATH: /opt/amplifiers
+    logging:
+      options:
+        max-size: "10m"
