@@ -310,6 +310,34 @@ class VolumeBridge:
         if volume is not None and self._source_reachable and not self._source_send_failed:
             self._follow_source(volume)
 
+    def sync(self, winner: str) -> None:
+        """Make both sides agree, e.g. after a hook woke the amplifier.
+
+        ``"source"`` sends the source's volume to the amplifier, ``"amplifier"``
+        the amplifier's to the source. Sent even if they already seem to agree,
+        since the amplifier may have ignored commands while it was asleep.
+        """
+        if not self._source_reachable:
+            log.info("sync skipped: no source connected")
+            return
+        if winner == "source":
+            volume = self.source.volume
+            if volume is None:
+                log.info("sync skipped: the source hasn't reported a volume yet")
+                return
+            log.info("sync: airplay volume %.2f -> amplifier", volume)
+            self._to_amp.request(volume)
+        elif winner == "amplifier":
+            state = self.amplifier.state
+            if state is None:
+                log.info("sync skipped: the amplifier hasn't reported its state yet")
+                return
+            target = self._source_target(state)
+            log.info("sync: amplifier level %g -> airplay volume %.2f", state.level, target)
+            self._to_source.request(target)
+        else:
+            raise ValueError(f"unknown sync direction {winner!r}")
+
     # -- senders ----------------------------------------------------------------
 
     async def _send_to_amp(self, volume: float) -> None:

@@ -88,3 +88,30 @@ own_commands_echoed = false
 # Other programs' "(VOL nn)" commands look exactly like status. They aren't
 # ignored: the amp acknowledges them with the same message anyway.
 ignore_patterns = []
+
+# Wake the amp when a source connects. In standby the MA352 rejects every
+# command except power, so turn it on, wait until it has warmed up (15-20 s),
+# then re-read its state (re-enabling status updates) and bring it to the
+# source's volume. Volume changes made during the warm-up are rejected by the
+# amp; the sync at the end catches up with the source.
+#
+# At the same time, a Home Assistant webhook (an automation with a Webhook
+# trigger, ID "airplay-living-room") can switch on whatever else is needed:
+# speakers, a subwoofer, lights. Its JSON body tells the automation which event
+# happened ({{ trigger.json.event }}: "connect" / "disconnect").
+#
+# Optionally put everything back to standby when the last source disconnects.
+# See config/volume-bridge.toml for every hook event and action.
+# [hooks]
+# on_connect = [
+#   { parallel = [
+#     [ { send = "PWR 1" }, { delay = 20 }, { sync = "source" } ],
+#     { shell = 'curl -sf -m 10 -X POST -H "Content-Type: application/json" -d "{\"event\": \"$VOLUME_BRIDGE_EVENT\", \"source\": \"$VOLUME_BRIDGE_SOURCE\"}" http://192.168.1.10:8123/api/webhook/airplay-living-room' },
+#   ] },
+# ]
+# on_disconnect = [
+#   { parallel = [
+#     { send = "PWR 0" },
+#     { shell = 'curl -sf -m 10 -X POST -H "Content-Type: application/json" -d "{\"event\": \"$VOLUME_BRIDGE_EVENT\", \"source\": \"$VOLUME_BRIDGE_SOURCE\"}" http://192.168.1.10:8123/api/webhook/airplay-living-room' },
+#   ] },
+# ]

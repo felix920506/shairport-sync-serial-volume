@@ -5,6 +5,8 @@ does two things:
 
 * accepts commands from the bridge: :meth:`Amplifier.set_level` and, if
   :attr:`Amplifier.supports_mute` is true, :meth:`Amplifier.set_mute`;
+* optionally, sends arbitrary commands for hooks (:meth:`Amplifier.send_command`,
+  e.g. to power the amplifier on) and re-reads the state (:meth:`Amplifier.refresh`);
 * reports the amplifier's state whenever it learns of it -- in reply to a
   command, from a poll, or because someone turned the knob -- by calling
   :meth:`Amplifier.report`.
@@ -75,3 +77,14 @@ class Amplifier(abc.ABC):
 
     async def set_mute(self, muted: bool) -> None:
         raise NotImplementedError(f"{type(self).__name__} does not support mute")
+
+    async def send_command(self, command: str, raw: bool = False) -> None:
+        """Send a command that isn't about volume (for hooks, e.g. power on).
+
+        ``raw`` sends the text exactly as given instead of wrapping it the way
+        the backend wraps its own commands.
+        """
+        raise NotImplementedError(f"{type(self).__name__} can't send commands")
+
+    async def refresh(self) -> None:
+        """Ask the amplifier for its state again, e.g. after waking it. Default: nothing."""

@@ -21,6 +21,10 @@ services:
       # - ./amplifiers:/opt/amplifiers:ro
     # environment entry to go with the mount above:
     #   PYTHONPATH: /opt/amplifiers
+      # Scripts for [hooks] shell actions, e.g. shell = "/opt/hooks/wake.sh".
+      # - ./hooks:/opt/hooks:ro
+    # Secrets for hook commands go in the environment, e.g.:
+    #   HA_TOKEN: "<Home Assistant long-lived access token>"
     logging:
       options:
         max-size: "10m"

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .bridge import BridgeSettings
+from .hooks import Hooks, parse_hooks
 from .mapping import LevelScale
 
 
@@ -22,6 +23,7 @@ class Config:
     amplifier_type: str = "stub"
     amplifier_scale: LevelScale = field(default_factory=LevelScale)
     amplifier_options: dict[str, Any] = field(default_factory=dict)
+    hooks: Hooks = field(default_factory=dict)
 
 
 def _pick(section: dict[str, Any], names: tuple[str, ...], where: str) -> dict[str, Any]:
@@ -32,7 +34,7 @@ def _pick(section: dict[str, Any], names: tuple[str, ...], where: str) -> dict[s
 
 
 def parse_config(data: dict[str, Any]) -> Config:
-    unknown = set(data) - {"bridge", "shairport", "amplifier"}
+    unknown = set(data) - {"bridge", "shairport", "amplifier", "hooks"}
     if unknown:
         raise ValueError(f"unknown section(s): {', '.join(sorted(unknown))}")
 
@@ -58,6 +60,7 @@ def parse_config(data: dict[str, Any]) -> Config:
         amplifier_type=amp_type,
         amplifier_scale=LevelScale(**scale),
         amplifier_options=dict(options),
+        hooks=parse_hooks(data.get("hooks", {})),
     )
 
 

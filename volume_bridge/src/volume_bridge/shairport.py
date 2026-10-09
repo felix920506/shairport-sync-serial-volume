@@ -55,9 +55,15 @@ class ShairportSync:
         self.metadata_port = metadata_port
         self.on_volume: Callable[[float], None] = lambda volume: None
         self.on_active: Callable[[bool], None] = lambda active: None
+        #: Called with (connected, client address) when the first source
+        #: connects or the last one disconnects (needs metadata).
+        self.on_connection: Callable[[bool, str], None] = lambda connected, client: None
         self._bus: MessageBus | None = None
         self._remote: ProxyInterface | None = None
         self._volume: float | None = None
+        # Until a source sets a volume, Shairport Sync reports its startup
+        # default (0 dB = full scale), which must never reach the amplifier.
+        self._volume_set = False
         self._active = False
         self._metadata: asyncio.DatagramTransport | None = None
         # None until the first metadata packet: until then, fall back to "active".
@@ -65,7 +71,8 @@ class ShairportSync:
 
     @property
     def volume(self) -> float | None:
-        return self._volume
+        """The source's volume, or None until a source has set one."""
+        return self._volume if self._volume_set else None
 
     @property
     def active(self) -> bool:
@@ -130,8 +137,8 @@ class ShairportSync:
     def _properties_changed(self, interface: str, changed: dict[str, Variant], _invalidated: list[str]) -> None:
         if interface == REMOTE_INTERFACE and "AirplayVolume" in changed:
             volume = float(changed["AirplayVolume"].value)
-            if volume != self._volume:
-                self._volume = volume
+            if volume != self._volume or not self._volume_set:
+                self._volume, self._volume_set = volume, True
                 log.debug("airplay volume is now %.2f", volume)
                 self.on_volume(volume)
         if interface == MAIN_INTERFACE and "Active" in changed:
@@ -147,6 +154,7 @@ class ShairportSync:
         if type_ != b"ssnc" or code not in (b"conn", b"disc"):
             return
         client = data.decode("utf-8", errors="replace")
+        was_connected = bool(self._connections)
         if code == b"conn":
             self._connections[client] += 1
             log.info("source %s connected", client)
@@ -154,6 +162,8 @@ class ShairportSync:
             self._connections[client] -= 1
             log.info("source %s disconnected", client)
         self._connections += collections.Counter()  # drop zero counts
+        if bool(self._connections) != was_connected:
+            self.on_connection(not was_connected, client)
 
     async def set_volume(self, volume: float) -> None:
         if self._remote is None:

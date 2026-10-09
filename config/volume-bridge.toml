@@ -106,3 +106,41 @@ control_port = 7001
 # # Messages from other programs that would match the patterns above but are
 # # commands, not status (not needed when commands and status differ).
 # ignore_patterns = []
+
+# ---------------------------------------------------------------------------
+# Hooks: actions run when a source connects/disconnects or playback starts/ends,
+# e.g. to wake equipment that went to standby. Events:
+#   on_connect        a source (phone, Mac...) connects to this speaker
+#   on_disconnect     the last source disconnects
+#   on_session_start  playback starts (Shairport Sync's "active" state)
+#   on_session_end    active_state_timeout after playback stops
+# Actions run in order; a failing action is logged and the next one still runs:
+#   { send = "PWR 1" }               a command through the amplifier connection,
+#                                    wrapped in command_prefix/command_suffix
+#   { send = "\u0002ON\u0003", raw = true }   sent byte for byte (e.g. another
+#                                    device on a shared serial port)
+#   { shell = "...", timeout = 30 }  run with /bin/sh -c. Environment:
+#                                    VOLUME_BRIDGE_EVENT, VOLUME_BRIDGE_SOURCE,
+#                                    VOLUME_BRIDGE_AIRPLAY_VOLUME,
+#                                    VOLUME_BRIDGE_AMPLIFIER_LEVEL,
+#                                    VOLUME_BRIDGE_AMPLIFIER_MUTED, plus the
+#                                    container's environment (e.g. HA_TOKEN)
+#   { delay = 3 }                    wait (e.g. while equipment powers up)
+#   { sync = "source" }              re-read the amplifier, then send the
+#                                    source's volume to it ("amplifier": the
+#                                    other way round)
+#   { parallel = [ A, [B, C] ] }     run branches at the same time and wait
+#                                    for all; a branch is one action or a list
+#                                    of actions run in order
+#
+# [hooks]
+# on_connect = [
+#   # Home Assistant: turn on a smart plug / script. HA_TOKEN is a long-lived
+#   # access token passed in docker-compose.yaml's environment.
+#   { shell = 'curl -sf -X POST -H "Authorization: Bearer $HA_TOKEN" -H "Content-Type: application/json" -d "{\"entity_id\": \"switch.amplifier\"}" http://192.168.1.10:8123/api/services/switch/turn_on' },
+#   { delay = 5 },
+#   { sync = "source" },
+# ]
+# on_session_end = [
+#   { shell = "/opt/hooks/idle.sh" },   # scripts mounted into the container
+# ]

@@ -217,6 +217,58 @@ Then mount the module and point the config at it:
 type = "my_amp:MyAmplifier"
 ```
 
+Custom backends can also implement `send_command()` and `refresh()` so that hooks can use them (see below).
+
+### Hooks: waking equipment on connect
+
+The `[hooks]` section runs actions when something happens:
+
+| Event | When |
+| --- | --- |
+| `on_connect` | A source connects to this speaker (the first one, if several do) |
+| `on_disconnect` | The last source disconnects |
+| `on_session_start` | Playback starts (Shairport Sync's "active" state) |
+| `on_session_end` | `active_state_timeout` after playback stops |
+
+Each event runs its actions in order, or several at once with `parallel`. If an action fails, the bridge logs
+it and runs the next one. Events are handled one at a time, so a disconnect's actions never overtake the
+connect's.
+
+| Action | Does |
+| --- | --- |
+| `{ send = "PWR 1" }` | Sends a command over the amplifier's connection (the same serial port or serial server), wrapped like the backend's own commands. Add `raw = true` to send it byte for byte, e.g. for another device on a shared port. |
+| `{ shell = "...", timeout = 30 }` | Runs a command with `/bin/sh -c`, e.g. `curl` to Home Assistant's REST API. It gets `VOLUME_BRIDGE_EVENT`, `VOLUME_BRIDGE_SOURCE` (the source's address), `VOLUME_BRIDGE_AIRPLAY_VOLUME`, `VOLUME_BRIDGE_AMPLIFIER_LEVEL` and `VOLUME_BRIDGE_AMPLIFIER_MUTED` in its environment, plus the container's environment. On timeout, the command and everything it started are killed. |
+| `{ delay = 3 }` | Waits, e.g. while equipment powers up. |
+| `{ sync = "source" }` | Re-reads the amplifier's state, then sends the source's volume to it, even if they already seem to agree (an amp in standby ignores commands). `"amplifier"` sends the amplifier's volume to the source instead. |
+| `{ parallel = [A, [B, C]] }` | Runs branches at the same time and waits for all of them. A branch is one action, or a list of actions run in order. |
+
+For example, when a phone connects, power on a McIntosh MA352 (which takes 15-20 seconds to warm up) and,
+at the same time, call a Home Assistant webhook (an automation with a Webhook trigger) to switch on the rest
+of the system:
+
+```toml
+[hooks]
+on_connect = [
+  { parallel = [
+    [ { send = "PWR 1" }, { delay = 20 }, { sync = "source" } ],
+    { shell = 'curl -sf -m 10 -X POST -H "Content-Type: application/json" -d "{\"event\": \"$VOLUME_BRIDGE_EVENT\"}" http://192.168.1.10:8123/api/webhook/airplay-living-room' },
+  ] },
+]
+```
+
+Webhooks need no token. Home Assistant's REST API does: pass a long-lived access token in
+`docker-compose.yaml` as e.g. `HA_TOKEN`, and send it as `-H "Authorization: Bearer $HA_TOKEN"` to
+`/api/services/<domain>/<service>`. `config/mcintosh-ma352.toml` and `config/volume-bridge.toml` have
+complete examples.
+
+Longer logic belongs in a script. Mount it into the container (e.g. `./hooks:/opt/hooks:ro`) and call it
+with `shell = "/opt/hooks/wake.sh"`. The image has `curl`, `bash` and `python3`. Use IP addresses rather
+than `.local` names, because the container doesn't resolve mDNS names. Hook commands run as the
+unprivileged `shairport-sync` user.
+
+`on_connect` and `on_disconnect` need the metadata socket described under Caveats. Without it, only the
+session events fire.
+
 ### Developing the bridge
 
 ```sh

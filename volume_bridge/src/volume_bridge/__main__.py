@@ -9,6 +9,7 @@ import sys
 from .amplifiers import create_amplifier
 from .bridge import VolumeBridge
 from .config import load_config
+from .hooks import HookRunner
 from .shairport import ShairportSync
 
 log = logging.getLogger("volume_bridge")
@@ -22,8 +23,18 @@ async def run(config_path: str) -> int:
     source = ShairportSync(bus=config.shairport_bus, service=config.shairport_service,
                            metadata_port=config.shairport_metadata_port)
     bridge = VolumeBridge(source, amplifier, config.amplifier_scale, config.bridge)
+    hooks = HookRunner(config.hooks, source, amplifier, bridge)
     source.on_volume = bridge.on_source_volume
-    source.on_active = bridge.on_source_active
+
+    def on_active(active: bool) -> None:
+        bridge.on_source_active(active)
+        hooks.fire("session_start" if active else "session_end")
+
+    def on_connection(connected: bool, client: str) -> None:
+        hooks.fire("connect" if connected else "disconnect", client)
+
+    source.on_active = on_active
+    source.on_connection = on_connection
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -31,6 +42,8 @@ async def run(config_path: str) -> int:
         loop.add_signal_handler(sig, stop.set)
 
     log.info("amplifier: %s, scale %s", config.amplifier_type, config.amplifier_scale)
+    if config.hooks:
+        log.info("hooks: %s", ", ".join(f"{e} ({len(a)} actions)" for e, a in config.hooks.items()))
     await source.connect()
     await amplifier.start()
     try:
@@ -44,6 +57,7 @@ async def run(config_path: str) -> int:
             return 1
         return 0
     finally:
+        hooks.close()
         bridge.close()
         source.close()
         await amplifier.stop()

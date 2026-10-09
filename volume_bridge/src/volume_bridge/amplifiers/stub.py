@@ -41,6 +41,8 @@ class StubAmplifier(Amplifier):
         self._max = float(self.options.get("max_level", 100))
         self.supports_mute = bool(self.options.get("supports_mute", True))
         self._server: asyncio.base_events.Server | None = None
+        #: Commands received through send_command (for hooks), as (text, raw).
+        self.received_commands: list[tuple[str, bool]] = []
 
     async def start(self) -> None:
         port = self.options.get("control_port")
@@ -67,6 +69,13 @@ class StubAmplifier(Amplifier):
             await super().set_mute(muted)
         log.info("stub amplifier: mute %s", "on" if muted else "off")
         self._muted = muted
+        self._emit()
+
+    async def send_command(self, command: str, raw: bool = False) -> None:
+        log.info("stub amplifier: command %r%s", command, " (raw)" if raw else "")
+        self.received_commands.append((command, raw))
+
+    async def refresh(self) -> None:
         self._emit()
 
     # -- simulated front panel -------------------------------------------------

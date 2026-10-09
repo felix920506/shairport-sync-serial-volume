@@ -79,7 +79,7 @@ FROM base
 RUN apk -U --no-cache add \
       ffmpeg-libavcodec ffmpeg-libavformat ffmpeg-libavutil ffmpeg-libswresample
 RUN apk -U --no-cache add \
-      alsa-lib alsa-utils avahi bash dbus glib libconfig libgcrypt libplist \
+      alsa-lib alsa-utils avahi bash curl dbus glib libconfig libgcrypt libplist \
       libcrypto3 libsodium libuuid popt python3 su-exec tini \
  && rm -f /etc/avahi/services/*.service \
  && addgroup -S shairport-sync \

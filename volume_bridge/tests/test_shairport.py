@@ -8,6 +8,19 @@ def message(code, data=b""):
     return b"ssnc" + code + data
 
 
+def test_startup_volume_is_unknown_until_a_source_sets_one():
+    from dbus_fast import Variant
+
+    source = ShairportSync()
+    source._volume = 0.0  # what Shairport Sync reports at startup
+    assert source.volume is None
+    seen = []
+    source.on_volume = seen.append
+    source._properties_changed("org.gnome.ShairportSync.RemoteControl",
+                               {"AirplayVolume": Variant("d", -24.0)}, [])
+    assert source.volume == -24.0 and seen == [-24.0]
+
+
 def test_connected_falls_back_to_active_without_metadata():
     source = ShairportSync()
     assert not source.connected

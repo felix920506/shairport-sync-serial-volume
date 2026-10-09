@@ -215,6 +215,12 @@ class TcpSerialAmplifier(Amplifier):
             await super().set_mute(muted)
         await self._send_all([self.encode_set_mute(muted)])
 
+    async def send_command(self, command: str, raw: bool = False) -> None:
+        await self._send_all([command.encode(self.encoding) if raw else self.encode_command(command)])
+
+    async def refresh(self) -> None:
+        await self._send_all(self.encode_queries())
+
     async def _send_all(self, payloads: list[bytes]) -> None:
         async with self._send_lock:
             for payload in payloads:
