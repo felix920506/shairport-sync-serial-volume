@@ -44,7 +44,7 @@ class StubAmplifier(Amplifier):
 
     async def start(self) -> None:
         port = self.options.get("control_port")
-        if port:
+        if port is not None:
             host = self.options.get("control_host", "0.0.0.0")
             self._server = await asyncio.start_server(self._handle_client, host, int(port))
             log.info("stub amplifier control port listening on %s:%s", host, port)
