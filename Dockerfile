@@ -10,13 +10,22 @@
 # no longer hides the volume slider on the source.
 
 ARG ALPINE_VERSION=3.23.4
+# Package mirror. The default CDN can be very slow from some networks; a nearby
+# mirror (https://mirrors.alpinelinux.org) can be set as a build argument, e.g.
+# in docker-compose.override.yaml.
+ARG ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine
 # nqptp development branch: provides shared-memory interface (SMI) version 11,
 # which this Shairport Sync commit requires (nqptp main only provides 10).
 ARG NQPTP_REF=0a88cd7ca9325f023ca5d891714695167672bdb9
 ARG SHAIRPORT_SYNC_REF=b45f15b32882409a7d39b01293d43da3d5519416
 
+##### Base: Alpine with the chosen package mirror #####
+FROM alpine:${ALPINE_VERSION} AS base
+ARG ALPINE_MIRROR
+RUN sed -i "s#^https\?://dl-cdn.alpinelinux.org/alpine#${ALPINE_MIRROR%/}#" /etc/apk/repositories
+
 ##### NQPTP (PTP timing companion required for AirPlay 2) #####
-FROM alpine:${ALPINE_VERSION} AS nqptp
+FROM base AS nqptp
 RUN apk -U add autoconf automake build-base git linux-headers musl-dev pkgconf
 ARG NQPTP_REF
 WORKDIR /src/nqptp
@@ -27,7 +36,7 @@ RUN git init -q . \
  && autoreconf -i && ./configure && make -j"$(nproc)"
 
 ##### Shairport Sync #####
-FROM alpine:${ALPINE_VERSION} AS shairport-sync
+FROM base AS shairport-sync
 RUN apk -U add \
       alsa-lib-dev autoconf automake avahi-dev build-base dbus git glib-dev \
       libconfig-dev libgcrypt-dev libplist-dev libplist-util libsodium-dev libtool \
@@ -57,17 +66,20 @@ RUN autoreconf -i .. \
  && DESTDIR=/install make install
 
 ##### Volume bridge (Python) #####
-FROM alpine:${ALPINE_VERSION} AS volume-bridge
+FROM base AS volume-bridge
 RUN apk -U add python3 py3-pip
 COPY volume_bridge /src/volume_bridge
 RUN python3 -m venv /opt/volume-bridge \
  && /opt/volume-bridge/bin/pip install --no-cache-dir /src/volume_bridge
 
 ##### Runtime #####
-FROM alpine:${ALPINE_VERSION}
+FROM base
+# FFmpeg on its own: by far the largest download (every codec it was built
+# with), so it stays cached when the packages below change.
 RUN apk -U --no-cache add \
-      alsa-lib alsa-utils avahi bash dbus ffmpeg-libavcodec ffmpeg-libavformat \
-      ffmpeg-libavutil ffmpeg-libswresample glib libconfig libgcrypt libplist \
+      ffmpeg-libavcodec ffmpeg-libavformat ffmpeg-libavutil ffmpeg-libswresample
+RUN apk -U --no-cache add \
+      alsa-lib alsa-utils avahi bash dbus glib libconfig libgcrypt libplist \
       libcrypto3 libsodium libuuid popt python3 su-exec tini \
  && rm -f /etc/avahi/services/*.service \
  && addgroup -S shairport-sync \

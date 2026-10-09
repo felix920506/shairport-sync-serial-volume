@@ -23,6 +23,18 @@ docker compose up --build
 Edit `docker-compose.yaml` first: set `ALSA_DEVICE` (`aplay -l` on the host lists cards; use `hw:CARD=...`)
 and `SPS_NAME`. Host networking and `/dev/snd` are required.
 
+If the build is slow to download packages, pick a nearby mirror from
+[mirrors.alpinelinux.org](https://mirrors.alpinelinux.org). The default CDN can be very slow from some
+networks. Pass it as a build argument, e.g. in a `docker-compose.override.yaml`:
+
+```yaml
+services:
+  shairport-sync:
+    build:
+      args:
+        ALPINE_MIRROR: https://mirror.twds.com.tw/alpine
+```
+
 The default config uses the **stub amplifier**, which simulates an amplifier in memory. To act as the
 amplifier's front panel:
 
