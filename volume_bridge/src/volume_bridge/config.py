@@ -51,7 +51,7 @@ def parse_config(data: dict[str, Any]) -> Config:
         shairport_bus=shairport.get("bus", "system"),
         shairport_service=shairport.get("service", "org.gnome.ShairportSync"),
         bridge=BridgeSettings(**_pick(
-            bridge, ("source_echo_window", "amplifier_echo_window", "use_amplifier_mute"), "bridge")),
+            bridge, ("source_echo_window", "amplifier_echo_window", "max_echo_window", "use_amplifier_mute"), "bridge")),
         amplifier_type=amp_type,
         amplifier_scale=LevelScale(**scale),
         amplifier_options=dict(options),

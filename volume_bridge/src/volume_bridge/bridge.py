@@ -10,10 +10,13 @@ loops. Three mechanisms work together:
 
 2. **Echo windows.** After sending a volume to one side, reports *from* that
    side are ignored for a short window. Sources ramp volume notifications and
-   amplifiers often report intermediate steps; those echoes are not user
-   actions. When the window closes, the bridge re-checks that side once and
-   follows it if it ended up somewhere else (a user moved it meanwhile, or the
-   device refused/clamped the value).
+   amplifiers often stream a status update for every step as they ramp; those
+   echoes are not user actions. Each report with a *new* value extends the
+   window (up to a cap), so a slow ramp can't outlive it, and the amplifier's
+   window closes early once it reports the commanded target. When the window
+   closes, the bridge re-checks that side once and follows it if it ended up
+   somewhere else (a user moved it meanwhile, or the device refused/clamped
+   the value).
 
 3. **Latest-value senders.** Bursts (dragging a slider, spinning a knob) are
    coalesced: while a send is in flight only the most recent request is kept.
@@ -60,6 +63,10 @@ class BridgeSettings:
     source_echo_window: float = 1.5
     #: Seconds to ignore amplifier reports after commanding the amplifier.
     amplifier_echo_window: float = 1.0
+    #: Each report with a new value restarts the echo window, but a window never
+    #: stays open longer than this in total (covers slow ramps without letting a
+    #: chatty device suppress reports forever).
+    max_echo_window: float = 10.0
     #: Map AirPlay mute (-144) to the amplifier's mute instead of its minimum level,
     #: and report amplifier mute back as AirPlay mute. Only if the backend supports mute.
     use_amplifier_mute: bool = True
@@ -84,6 +91,11 @@ class _LatestValueSender(Generic[T]):
             value, self._has_value = self._value, False
             await self._send(value)  # type: ignore[arg-type]
 
+    @property
+    def busy(self) -> bool:
+        """True while a send is in flight or queued."""
+        return self._has_value or (self._task is not None and not self._task.done())
+
     async def idle(self) -> None:
         while self._task is not None and not self._task.done():
             await asyncio.shield(self._task)
@@ -94,10 +106,12 @@ class _LatestValueSender(Generic[T]):
 
 
 class _EchoWindow:
-    def __init__(self, duration: float, on_close: Callable[[], None]) -> None:
+    def __init__(self, duration: float, max_duration: float, on_close: Callable[[], None]) -> None:
         self.duration = duration
+        self.max_duration = max(duration, max_duration)
         self._on_close = on_close
         self._handle: asyncio.TimerHandle | None = None
+        self._deadline = 0.0
 
     @property
     def is_open(self) -> bool:
@@ -105,7 +119,24 @@ class _EchoWindow:
 
     def open(self) -> None:
         self.cancel()
-        self._handle = asyncio.get_running_loop().call_later(self.duration, self._close)
+        loop = asyncio.get_running_loop()
+        self._deadline = loop.time() + self.max_duration
+        self._handle = loop.call_later(self.duration, self._close)
+
+    def extend(self) -> None:
+        """Restart the timer (if open), without passing the hard deadline."""
+        if self._handle is None:
+            return
+        loop = asyncio.get_running_loop()
+        self._handle.cancel()
+        delay = min(self.duration, max(0.0, self._deadline - loop.time()))
+        self._handle = loop.call_later(delay, self._close)
+
+    def close_now(self) -> None:
+        """Close immediately, running the close handler."""
+        if self._handle is not None:
+            self._handle.cancel()
+            self._close()
 
     def _close(self) -> None:
         self._handle = None
@@ -133,8 +164,14 @@ class VolumeBridge:
 
         self._to_amp = _LatestValueSender(self._send_to_amp)
         self._to_source = _LatestValueSender(self._send_to_source)
-        self._amp_window = _EchoWindow(settings.amplifier_echo_window, self._amp_window_closed)
-        self._source_window = _EchoWindow(settings.source_echo_window, self._source_window_closed)
+        self._amp_window = _EchoWindow(
+            settings.amplifier_echo_window, settings.max_echo_window, self._amp_window_closed)
+        self._source_window = _EchoWindow(
+            settings.source_echo_window, settings.max_echo_window, self._source_window_closed)
+        self._last_source_report: float | None = None
+        self._last_amp_report: AmplifierState | None = None
+        # What the amplifier was last commanded to, as a comparison key.
+        self._amp_target: float | str | None = None
         self._amp_send_failed = False
         self._source_send_failed = False
 
@@ -173,8 +210,11 @@ class VolumeBridge:
 
     def on_source_volume(self, volume: float) -> None:
         """The AirPlay volume changed (user moved a slider on a source)."""
+        changed, self._last_source_report = volume != self._last_source_report, volume
         if self._source_window.is_open:
             log.debug("airplay volume %.2f ignored (echo window)", volume)
+            if changed:
+                self._source_window.extend()
             return
         self._follow_source(volume)
 
@@ -184,9 +224,16 @@ class VolumeBridge:
             self._follow_source(self.source.volume)
 
     def on_amplifier_state(self, state: AmplifierState) -> None:
-        """The amplifier reported its state (echo, poll, or someone turned the knob)."""
+        """The amplifier reported its state (echo, poll, status broadcast, or the knob)."""
+        changed, self._last_amp_report = state != self._last_amp_report, state
         if self._amp_window.is_open:
-            log.debug("amplifier state %s ignored (echo window)", state)
+            if self._amp_key(state) == self._amp_target and not self._to_amp.busy:
+                log.debug("amplifier reached target %s", state)
+                self._amp_window.close_now()
+            else:
+                log.debug("amplifier state %s ignored (echo window)", state)
+                if changed:
+                    self._amp_window.extend()
             return
         self._follow_amplifier(state)
 
@@ -230,6 +277,7 @@ class VolumeBridge:
         self._amp_window.open()
         self._amp_send_failed = False
         state = self.amplifier.state
+        self._amp_target = self._source_key(volume)
         try:
             if self.use_amp_mute and volume <= AIRPLAY_MUTE:
                 if state is None or not state.muted:

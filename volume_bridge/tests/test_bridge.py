@@ -230,3 +230,49 @@ async def test_airplay_change_event_is_followed_even_if_not_active():
     source.user_sets(-6.0)
     await settle(bridge)
     assert amp.commands == [("level", 80)]
+
+
+class SilentStub(RecordingStub):
+    """Accepts commands without reporting (the report comes later, from the test)."""
+
+    async def set_level(self, level):
+        self.commands.append(("level", level))
+
+
+async def test_repeated_identical_reports_do_not_hold_the_window_open():
+    # A polling amp that refused our command keeps reporting its old level.
+    source, amp, bridge = await make(amp_options={"initial_level": 50})
+    amp.__class__ = SilentStub
+    source.user_sets(-6.0)
+    for _ in range(int(WINDOW * 4 / 0.01)):
+        amp.report(amp.state)  # same state every 10 ms
+        await asyncio.sleep(0.01)
+    assert source.sent == [pytest.approx(-15.0)]  # slider corrected to the amp's real level
+
+
+async def test_echo_window_is_capped():
+    settings = BridgeSettings(source_echo_window=WINDOW, amplifier_echo_window=WINDOW,
+                              max_echo_window=WINDOW * 3)
+    source, amp, bridge = await make(settings=settings)
+    amp.__class__ = SilentStub
+    source.user_sets(-6.0)
+    loop = asyncio.get_running_loop()
+    start, level = loop.time(), 50
+    while not source.sent and loop.time() - start < 2:
+        level = 51 if level == 50 else 50  # a chatty, changing amp
+        amp.report(type(amp.state)(level))
+        await asyncio.sleep(0.01)
+    assert source.sent, "window never closed"
+    assert loop.time() - start < WINDOW * 3 + 0.1
+
+
+async def test_window_closes_early_when_amp_reaches_target():
+    settings = BridgeSettings(source_echo_window=WINDOW, amplifier_echo_window=10.0)
+    source, amp, bridge = await make(settings=settings)
+    amp.__class__ = SilentStub
+    source.user_sets(-6.0)
+    await bridge.idle()
+    amp.report(type(amp.state)(80))  # the amp confirms the target
+    amp.report(type(amp.state)(81))  # and then someone nudges the knob
+    await settle(bridge)
+    assert source.sent == [pytest.approx(-5.7)]
