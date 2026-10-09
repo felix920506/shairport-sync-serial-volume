@@ -3,3 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 *.egg-info/
+
+# Local settings
+docker-compose.override.yaml
+config/*.local.toml
