@@ -8,10 +8,27 @@ subclass :class:`TcpLineAmplifier` and override the ``encode_*`` /
 ``parse_message`` / ``read_message`` / ``open_transport`` hooks, then point the
 config at it with ``type = "your_module:YourClass"``.
 
+Every received message is treated as an independent status report, whether it
+answers our query, someone else's query, or is pushed by the amplifier because
+its knob or remote was used. Nothing assumes that the next line received is the
+reply to the last command sent. That makes the backend safe on a serial
+multiplexer, where several programs share one RS-232 port, see each other's
+commands, and interleave their traffic. For multiplexers:
+
+* patterns must match a *whole* line (``re.fullmatch``), so fragments and
+  other programs' commands don't parse as status by accident;
+* ``ignore_patterns`` drops lines that are other programs' commands but would
+  otherwise look like status;
+* ``own_commands_echoed`` drops the copy of our own command that a multiplexer
+  sends back to us, so it isn't mistaken for the amplifier's confirmation.
+
 Options (all strings are Python ``str.format`` templates where noted):
 
     host, port            serial server address (required)
-    line_ending           terminator for sent and received lines (default "\\r")
+    line_ending           terminator appended to sent commands (default "\\r")
+    receive_terminators   any of these characters ends a received line
+                          (default "\\r\\n", so CR, LF and CRLF all work)
+    max_line_length       longer unterminated input is discarded as noise (default 512)
     encoding              text encoding (default "ascii")
     set_level_command     template; fields: {level} (float), {level_int} (int)
     query_commands        list of commands sent on connect and on each poll
@@ -21,6 +38,14 @@ Options (all strings are Python ``str.format`` templates where noted):
     mute_on_command, mute_off_command   enable mute support when both set
     mute_pattern          regex with a named group "muted"
     mute_on_values        values of "muted" that mean muted (default ["ON", "1"])
+    ignore_patterns       list of regexes; matching lines are ignored (e.g. other
+                          programs' commands on a multiplexer)
+    own_commands_echoed   true if the port echoes our own commands back to us,
+                          as many multiplexers do (default false). Each command
+                          we send then cancels one identical received line seen
+                          within echo_timeout. Leave false otherwise, or the
+                          amplifier's real confirmation may be dropped.
+    echo_timeout          seconds to wait for an echoed copy (default 2)
     poll_interval         seconds between queries; 0 disables polling (default 0)
     command_interval      minimum seconds between commands (default 0.05)
     connect_timeout       seconds (default 5)
@@ -30,6 +55,7 @@ Options (all strings are Python ``str.format`` templates where noted):
 from __future__ import annotations
 
 import asyncio
+import collections
 import contextlib
 import logging
 import re
@@ -51,6 +77,14 @@ class TcpLineAmplifier(Amplifier):
             raise ValueError(f"tcp-line amplifier requires option {e.args[0]!r}") from None
         self.line_ending: str = o.get("line_ending", "\r")
         self.encoding: str = o.get("encoding", "ascii")
+        terminators = o.get("receive_terminators", "\r\n").encode(self.encoding)
+        if not terminators:
+            raise ValueError("receive_terminators must not be empty")
+        self._split = re.compile(b"[" + re.escape(terminators) + b"]")
+        self.max_line_length = int(o.get("max_line_length", 512))
+        self.ignore_patterns = [re.compile(p) for p in o.get("ignore_patterns", [])]
+        self.own_commands_echoed = bool(o.get("own_commands_echoed", False))
+        self.echo_timeout = float(o.get("echo_timeout", 2))
         self.set_level_command: str | None = o.get("set_level_command")
         self.query_commands: list[str] = list(o.get("query_commands", []))
         self.level_pattern = re.compile(o["level_pattern"]) if o.get("level_pattern") else None
@@ -71,6 +105,9 @@ class TcpLineAmplifier(Amplifier):
         self._task: asyncio.Task | None = None
         self._connected = asyncio.Event()
         self._early_muted = False
+        self._rx_buffer = b""
+        self._rx_lines: collections.deque[str] = collections.deque()
+        self._awaiting_echo: collections.deque[tuple[str, float]] = collections.deque()
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -96,6 +133,8 @@ class TcpLineAmplifier(Amplifier):
                 delay = min(delay * 2, self.reconnect_max_delay)
                 continue
             delay = 1.0
+            self._rx_buffer, self._rx_lines = b"", collections.deque()
+            self._awaiting_echo.clear()
             self._writer = writer
             self._connected.set()
             log.info("connected to amplifier at %s:%s", self.host, self.port)
@@ -146,11 +185,32 @@ class TcpLineAmplifier(Amplifier):
                 if wait > 0:
                     await asyncio.sleep(wait)
                 log.debug("amplifier <- %r", payload)
-                self._writer.write(payload)
+                self._writer.write(payload)  # one write per command: never split on a shared port
                 await self._writer.drain()
                 self._last_send = loop.time()
+                if self.own_commands_echoed:
+                    text = payload.decode(self.encoding, errors="replace").strip()
+                    self._awaiting_echo.append((text, self._last_send + self.echo_timeout))
+
+    def _is_own_echo(self, message: str) -> bool:
+        if not self._awaiting_echo:
+            return False
+        now = asyncio.get_running_loop().time()
+        while self._awaiting_echo and self._awaiting_echo[0][1] < now:
+            self._awaiting_echo.popleft()
+        for i, (text, _) in enumerate(self._awaiting_echo):
+            if text == message:
+                del self._awaiting_echo[i]
+                return True
+        return False
 
     def _handle_message(self, message: str) -> None:
+        if self._is_own_echo(message):
+            log.debug("amplifier -> %r (echo of our own command, ignored)", message)
+            return
+        if self.is_foreign_command(message):
+            log.debug("amplifier -> %r (another program's command, ignored)", message)
+            return
         log.debug("amplifier -> %r", message)
         update = self.parse_message(message)
         if not update:
@@ -175,15 +235,25 @@ class TcpLineAmplifier(Amplifier):
         await self._send_all(self.encode_queries())
 
     async def read_message(self, reader: asyncio.StreamReader) -> str | None:
-        """Read one message; return None on EOF."""
-        terminator = self.line_ending.encode(self.encoding) or b"\n"
-        try:
-            raw = await reader.readuntil(terminator)
-        except asyncio.IncompleteReadError as e:
-            if not e.partial:
-                return None
-            raw = e.partial
-        return raw.decode(self.encoding, errors="replace").strip()
+        """Read one message; return None on EOF.
+
+        Lines may end in any of ``receive_terminators``, may arrive split
+        across reads or several to a read, and blank lines are skipped.
+        """
+        while not self._rx_lines:
+            chunk = await reader.read(4096)
+            if not chunk:
+                tail, self._rx_buffer = self._rx_buffer, b""
+                text = tail.decode(self.encoding, errors="replace").strip()
+                return text or None
+            *lines, self._rx_buffer = self._split.split(self._rx_buffer + chunk)
+            for raw in lines:
+                if text := raw.decode(self.encoding, errors="replace").strip():
+                    self._rx_lines.append(text)
+            if len(self._rx_buffer) > self.max_line_length:
+                log.debug("discarding %d bytes of unterminated input", len(self._rx_buffer))
+                self._rx_buffer = b""
+        return self._rx_lines.popleft()
 
     def _frame(self, command: str) -> bytes:
         return (command + self.line_ending).encode(self.encoding)
@@ -202,10 +272,18 @@ class TcpLineAmplifier(Amplifier):
         assert command is not None
         return self._frame(command)
 
+    def is_foreign_command(self, message: str) -> bool:
+        """True for lines that are commands (ours or another program's), not status.
+
+        Default: lines matching ``ignore_patterns``, or identical to one of our
+        query commands (e.g. another program polling with "MV?").
+        """
+        return message in self.query_commands or any(p.fullmatch(message) for p in self.ignore_patterns)
+
     def parse_message(self, message: str) -> dict[str, Any] | None:
         """Turn one received message into ``{"level": float}`` and/or ``{"muted": bool}``."""
-        if self.level_pattern and (m := self.level_pattern.search(message)):
+        if self.level_pattern and (m := self.level_pattern.fullmatch(message)):
             return {"level": float(m.group("level")) + self.level_offset}
-        if self.mute_pattern and (m := self.mute_pattern.search(message)):
+        if self.mute_pattern and (m := self.mute_pattern.fullmatch(message)):
             return {"muted": m.group("muted").upper() in self.mute_on_values}
         return None
