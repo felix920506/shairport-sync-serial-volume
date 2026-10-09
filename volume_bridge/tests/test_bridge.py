@@ -276,3 +276,50 @@ async def test_window_closes_early_when_amp_reaches_target():
     amp.report(type(amp.state)(81))  # and then someone nudges the knob
     await settle(bridge)
     assert source.sent == [pytest.approx(-5.7)]
+
+
+class SlowSource(FakeSource):
+    async def set_volume(self, volume):
+        self.sent.append(volume)
+        await asyncio.sleep(0.05)
+        self.user_sets(volume)
+
+
+async def test_report_matching_stale_source_value_during_push_is_not_lost():
+    """Amp streams 68 then 70 while the push for 68 is in flight. The source
+    still shows its old -9.0 (= 70), but it is about to become 68, so 70 must
+    still be sent afterwards."""
+    source = SlowSource(volume=-9.0)  # level 70
+    amp = RecordingStub({"initial_level": 70})
+    bridge = VolumeBridge(source, amp, LevelScale(0, 100, 1), SETTINGS)
+    source.bridge = bridge
+    await amp.start()
+    amp.knob(68)
+    await asyncio.sleep(0.01)  # push for 68 now in flight
+    amp.knob(70)
+    await settle(bridge)
+    await asyncio.sleep(0.1)
+    assert source.volume == pytest.approx(-9.0)
+    assert bridge.in_sync()
+
+
+class SlowAmp(RecordingStub):
+    async def set_level(self, level):
+        self.commands.append(("level", level))
+        await asyncio.sleep(0.05)
+        self.knob(level)
+
+
+async def test_slider_matching_stale_amp_value_during_command_is_not_lost():
+    source = FakeSource(volume=-15.0)  # level 50
+    amp = SlowAmp({"initial_level": 50})
+    bridge = VolumeBridge(source, amp, LevelScale(0, 100, 1), SETTINGS)
+    source.bridge = bridge
+    await amp.start()
+    source.user_sets(-12.0)  # 60, command in flight
+    await asyncio.sleep(0.01)
+    source.user_sets(-15.0)  # back to 50: equals the amp's stale level
+    await settle(bridge)
+    await asyncio.sleep(0.1)
+    assert amp.state.level == 50
+    assert bridge.in_sync()

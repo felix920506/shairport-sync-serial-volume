@@ -77,11 +77,14 @@ class _LatestValueSender(Generic[T]):
 
     def __init__(self, send: Callable[[T], Awaitable[None]]) -> None:
         self._send = send
+        #: The most recently requested value (queued, in flight or already sent).
+        self.latest: T | None = None
         self._value: T | None = None
         self._has_value = False
         self._task: asyncio.Task | None = None
 
     def request(self, value: T) -> None:
+        self.latest = value
         self._value, self._has_value = value, True
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._drain())
@@ -172,6 +175,8 @@ class VolumeBridge:
         self._last_amp_report: AmplifierState | None = None
         # What the amplifier was last commanded to, as a comparison key.
         self._amp_target: float | str | None = None
+        # Mute state we last commanded while sends are in flight (None: trust reports).
+        self._commanded_mute: bool | None = None
         self._amp_send_failed = False
         self._source_send_failed = False
 
@@ -211,7 +216,7 @@ class VolumeBridge:
     def on_source_volume(self, volume: float) -> None:
         """The AirPlay volume changed (user moved a slider on a source)."""
         changed, self._last_source_report = volume != self._last_source_report, volume
-        if self._source_window.is_open:
+        if self._source_echo_expected:
             log.debug("airplay volume %.2f ignored (echo window)", volume)
             if changed:
                 self._source_window.extend()
@@ -220,13 +225,15 @@ class VolumeBridge:
 
     def on_source_active(self, active: bool) -> None:
         """A play session started or ended. On start, make the amplifier match the source."""
-        if active and self.source.volume is not None and not self._source_window.is_open:
+        if active and self.source.volume is not None and not self._source_echo_expected:
             self._follow_source(self.source.volume)
 
     def on_amplifier_state(self, state: AmplifierState) -> None:
         """The amplifier reported its state (echo, poll, status broadcast, or the knob)."""
         changed, self._last_amp_report = state != self._last_amp_report, state
-        if self._amp_window.is_open:
+        if not self._to_amp.busy:
+            self._commanded_mute = None  # nothing in flight: the report is current
+        if self._amp_echo_expected:
             if self._amp_key(state) == self._amp_target and not self._to_amp.busy:
                 log.debug("amplifier reached target %s", state)
                 self._amp_window.close_now()
@@ -238,8 +245,14 @@ class VolumeBridge:
         self._follow_amplifier(state)
 
     def _follow_source(self, volume: float) -> None:
-        state = self.amplifier.state
-        if state is not None and self._amp_key(state) == self._source_key(volume):
+        # While a command is queued or in flight, the amp's reported state is
+        # stale (it's about to change); compare with where it's being sent instead.
+        if self._to_amp.busy:
+            current = self._source_key(self._to_amp.latest)
+        else:
+            state = self.amplifier.state
+            current = None if state is None else self._amp_key(state)
+        if current == self._source_key(volume):
             return
         log.info("airplay volume %.2f -> amplifier", volume)
         self._to_amp.request(volume)
@@ -250,6 +263,9 @@ class VolumeBridge:
             # No session: there's no source to tell. When a session starts,
             # the amplifier is brought to the source's volume.
             return
+        # Same reasoning as in _follow_source.
+        if self._to_source.busy:
+            volume = self._to_source.latest
         if self._source_key(volume) == self._amp_key(state):
             return
         target = self._source_target(state)
@@ -257,7 +273,19 @@ class VolumeBridge:
                  state.level, " (muted)" if state.muted else "", target)
         self._to_source.request(target)
 
+    @property
+    def _amp_echo_expected(self) -> bool:
+        # A send in flight counts too: its echo can arrive before the send
+        # returns, which may be after a short window has already run out.
+        return self._amp_window.is_open or self._to_amp.busy
+
+    @property
+    def _source_echo_expected(self) -> bool:
+        return self._source_window.is_open or self._to_source.busy
+
     def _amp_window_closed(self) -> None:
+        if self._to_amp.busy:
+            return  # the send reopens the window when it finishes
         # We commanded the amplifier; if it didn't end up where the source is
         # (clamped, refused, or turned by hand meanwhile), the amp wins.
         state = self.amplifier.state
@@ -265,6 +293,8 @@ class VolumeBridge:
             self._follow_amplifier(state)
 
     def _source_window_closed(self) -> None:
+        if self._to_source.busy:
+            return  # the send reopens the window when it finishes
         # We pushed a volume to the source; if a user moved the slider
         # meanwhile, the source wins.
         volume = self.source.volume
@@ -276,21 +306,32 @@ class VolumeBridge:
     async def _send_to_amp(self, volume: float) -> None:
         self._amp_window.open()
         self._amp_send_failed = False
-        state = self.amplifier.state
         self._amp_target = self._source_key(volume)
+        # While commands are in flight the reported state lags behind, so use
+        # what we last commanded. The level is always sent: by the time this
+        # runs, an earlier command may have moved the amp away from it.
+        state = self.amplifier.state
+        muted = self._commanded_mute
+        if muted is None:
+            muted = state.muted if state is not None else False
         try:
             if self.use_amp_mute and volume <= AIRPLAY_MUTE:
-                if state is None or not state.muted:
+                if not muted:
+                    self._commanded_mute = True
                     await self.amplifier.set_mute(True)
                 return
-            level = self.scale.airplay_to_level(volume)
-            if self.use_amp_mute and state is not None and state.muted:
+            if self.use_amp_mute and muted:
+                self._commanded_mute = False
                 await self.amplifier.set_mute(False)
-            if state is None or state.level != level:
-                await self.amplifier.set_level(level)
+            await self.amplifier.set_level(self.scale.airplay_to_level(volume))
         except Exception as e:
             self._amp_send_failed = True
+            self._commanded_mute = None
             log.warning("failed to set amplifier volume: %s", e)
+        finally:
+            # Echoes arrive relative to when the device actually got the value,
+            # so the window must run from the end of the send, not its start.
+            self._amp_window.open()
 
     async def _send_to_source(self, volume: float) -> None:
         self._source_window.open()
@@ -300,6 +341,8 @@ class VolumeBridge:
         except Exception as e:
             self._source_send_failed = True
             log.warning("failed to set airplay volume: %s", e)
+        finally:
+            self._source_window.open()  # see _send_to_amp
 
     async def idle(self) -> None:
         """Wait until no sends are in flight (used by tests)."""
