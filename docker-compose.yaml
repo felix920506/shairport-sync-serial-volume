@@ -17,6 +17,10 @@ services:
     environment:
       SPS_NAME: "Living Room"
       ALSA_DEVICE: "hw:0"
+      # Force a sample format instead of the deepest one the device offers
+      # ("cat /proc/asound/cardN/stream0" lists them), e.g. for a DAC whose
+      # 32-bit USB mode doesn't work:
+      # ALSA_OUTPUT_FORMAT: "S24_3LE"
       # Set to 0 if the host already runs avahi-daemon / nqptp.
       ENABLE_AVAHI: "1"
       ENABLE_NQPTP: "1"

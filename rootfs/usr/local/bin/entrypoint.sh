@@ -10,6 +10,9 @@
 #   VOLUME_BRIDGE_CONFIG    path to the bridge's TOML config
 #   SPS_NAME                AirPlay service name (overrides general.name)
 #   ALSA_DEVICE             ALSA output device (overrides alsa.output_device)
+#   ALSA_OUTPUT_FORMAT      ALSA sample format, e.g. S24_3LE (overrides
+#                           alsa.output_format, normally "auto": the deepest
+#                           format the device offers)
 # Any arguments are passed through to shairport-sync.
 # su-exec is given only the user (no group) so supplementary groups such as
 # "audio" are kept.
@@ -52,6 +55,22 @@ if [ "${ENABLE_NQPTP:-1}" = "1" ]; then
 fi
 
 sps_args=()
+if [ -n "${ALSA_OUTPUT_FORMAT:-}" ]; then
+  # Shairport Sync has no command-line option for the output format, so run it
+  # with a copy of the config that sets it.
+  if [[ ! "$ALSA_OUTPUT_FORMAT" =~ ^[A-Za-z0-9_]+$ ]]; then
+    log "invalid ALSA_OUTPUT_FORMAT \"$ALSA_OUTPUT_FORMAT\""
+    exit 1
+  fi
+  sed -E "s/^([[:space:]]*output_format[[:space:]]*=[[:space:]]*)\"[^\"]*\";/\1\"${ALSA_OUTPUT_FORMAT}\";/" \
+    /etc/shairport-sync.conf > /run/shairport-sync.conf
+  if ! grep -Eq "^[[:space:]]*output_format[[:space:]]*=[[:space:]]*\"${ALSA_OUTPUT_FORMAT}\";" /run/shairport-sync.conf; then
+    log "ALSA_OUTPUT_FORMAT: no output_format setting found in /etc/shairport-sync.conf"
+    exit 1
+  fi
+  sps_args+=(--configfile=/run/shairport-sync.conf)
+  log "ALSA output format: $ALSA_OUTPUT_FORMAT"
+fi
 [ -n "${SPS_NAME:-}" ] && sps_args+=(--name "$SPS_NAME")
 sps_args+=("$@")
 if [ -n "${ALSA_DEVICE:-}" ]; then

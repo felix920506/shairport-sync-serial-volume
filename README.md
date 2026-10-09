@@ -31,6 +31,11 @@ If the DAC is missing when playback starts, or disappears during playback, Shair
 The container then restarts (`restart: unless-stopped`), and the AirPlay session ends. On a desktop host,
 also keep PipeWire/PulseAudio off the DAC: if they hold it open, Shairport Sync can't use it.
 
+Shairport Sync picks the deepest sample format the device offers. Some USB DACs advertise a 32-bit mode
+that doesn't actually work: the DAC sees no signal. `cat /proc/asound/cardN/stream0` lists the formats;
+force one that works with e.g. `ALSA_OUTPUT_FORMAT: "S24_3LE"` (24-bit packed) in the container's
+environment.
+
 If the build is slow to download packages, pick a nearby mirror from
 [mirrors.alpinelinux.org](https://mirrors.alpinelinux.org). The default CDN can be very slow from some
 networks. Pass it as a build argument, e.g. in a `docker-compose.override.yaml`:
