@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import signal
+import sys
+
+from .amplifiers import create_amplifier
+from .bridge import VolumeBridge
+from .config import load_config
+from .shairport import ShairportSync
+
+log = logging.getLogger("volume_bridge")
+
+
+async def run(config_path: str) -> int:
+    config = load_config(config_path)
+    logging.getLogger().setLevel(config.log_level)
+
+    amplifier = create_amplifier(config.amplifier_type, config.amplifier_options)
+    source = ShairportSync(bus=config.shairport_bus, service=config.shairport_service)
+    bridge = VolumeBridge(source, amplifier, config.amplifier_scale, config.bridge)
+    source.on_volume = bridge.on_source_volume
+    source.on_active = bridge.on_source_active
+
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+
+    log.info("amplifier: %s, scale %s", config.amplifier_type, config.amplifier_scale)
+    await amplifier.start()
+    try:
+        await source.connect()
+        disconnected = asyncio.ensure_future(source.wait_disconnected())
+        stopped = asyncio.ensure_future(stop.wait())
+        done, pending = await asyncio.wait({disconnected, stopped}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        if disconnected in done:
+            log.error("lost connection to the D-Bus bus")
+            return 1
+        return 0
+    finally:
+        bridge.close()
+        source.close()
+        await amplifier.stop()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="volume-bridge", description=__doc__)
+    parser.add_argument("--config", default="/etc/volume-bridge.toml", help="path to TOML config")
+    args = parser.parse_args()
+    logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout)
+    sys.exit(asyncio.run(run(args.config)))
+
+
+if __name__ == "__main__":
+    main()

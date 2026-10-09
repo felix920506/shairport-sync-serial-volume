@@ -1,0 +1,69 @@
+# Volume bridge configuration.
+#
+# AirPlay volume <-> amplifier volume, both directions:
+#   * moving the volume slider on an AirPlay source sets the amplifier;
+#   * changing the volume on the amplifier moves the slider on the source.
+
+[bridge]
+log_level = "INFO"            # DEBUG shows every echo the bridge ignores
+# After pushing a volume to the source, ignore volume reports from the source
+# for this long (it ramps and echoes intermediate values).
+source_echo_window = 1.5
+# After commanding the amplifier, ignore its reports for this long.
+amplifier_echo_window = 1.0
+# If the amplifier backend supports mute: AirPlay mute (slider at the bottom)
+# mutes the amplifier, and muting on the amplifier mutes on the source.
+use_amplifier_mute = true
+
+[shairport]
+bus = "system"                # "system", "session", or a D-Bus address
+service = "org.gnome.ShairportSync"
+
+[amplifier]
+# "stub", "tcp-line", or "your.module:YourAmplifierClass"
+type = "stub"
+
+# The amplifier's own volume scale. AirPlay's slider (0..100%) maps linearly
+# onto min_level..max_level, rounded to `step`.
+[amplifier.scale]
+min_level = 0
+max_level = 100
+step = 1
+# Never send a level above this (safety ceiling). Defaults to max_level.
+# limit = 70
+# 1.0 = linear in slider position (right for amps with a dB scale).
+# >1.0 gives finer control at low volume for amps with a linear/percent scale.
+exponent = 1.0
+
+# Backend-specific options.
+[amplifier.options]
+initial_level = 20
+# Simulated front panel: `nc <docker-host> 7001`, then e.g. "set 35", "up", "mute on".
+control_port = 7001
+
+# ---------------------------------------------------------------------------
+# Example: an amplifier on a serial-to-Ethernet adapter (e.g. ser2net in raw
+# mode) with a Denon-style text protocol. Replace the [amplifier] sections
+# above with something like this, adjusted to your amplifier's manual.
+#
+# [amplifier]
+# type = "tcp-line"
+#
+# [amplifier.scale]
+# min_level = 0
+# max_level = 98
+# step = 1
+# limit = 70
+#
+# [amplifier.options]
+# host = "192.168.1.50"
+# port = 4001
+# line_ending = "\r"
+# set_level_command = "MV{level_int:02d}"
+# query_commands = ["MV?", "MU?"]
+# level_pattern = '^MV(?P<level>\d{2})$'
+# mute_on_command = "MUON"
+# mute_off_command = "MUOFF"
+# mute_pattern = '^MU(?P<muted>ON|OFF)$'
+# poll_interval = 0           # seconds; use if the amp doesn't push changes
+# command_interval = 0.05
