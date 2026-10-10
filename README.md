@@ -46,6 +46,8 @@ services:
     build:
       args:
         ALPINE_MIRROR: https://mirror.twds.com.tw/alpine
+        # The volume bridge's Python packages come from PyPI; a mirror can be set the same way:
+        # PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 The default config uses the **stub amplifier**, which simulates an amplifier in memory. To act as the

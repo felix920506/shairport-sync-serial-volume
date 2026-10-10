@@ -14,6 +14,8 @@ ARG ALPINE_VERSION=3.23.4
 # mirror (https://mirrors.alpinelinux.org) can be set as a build argument, e.g.
 # in docker-compose.override.yaml.
 ARG ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine
+# Python package index for the volume bridge's dependencies (default: PyPI).
+ARG PIP_INDEX_URL=
 # nqptp development branch: provides shared-memory interface (SMI) version 11,
 # which this Shairport Sync commit requires (nqptp main only provides 10).
 ARG NQPTP_REF=0a88cd7ca9325f023ca5d891714695167672bdb9
@@ -67,10 +69,12 @@ RUN autoreconf -i .. \
 
 ##### Volume bridge (Python) #####
 FROM base AS volume-bridge
+ARG PIP_INDEX_URL
 RUN apk -U add python3 py3-pip
 COPY volume_bridge /src/volume_bridge
 RUN python3 -m venv /opt/volume-bridge \
- && /opt/volume-bridge/bin/pip install --no-cache-dir /src/volume_bridge
+ && PIP_DEFAULT_TIMEOUT=60 PIP_RETRIES=10 /opt/volume-bridge/bin/pip install --no-cache-dir \
+      ${PIP_INDEX_URL:+--index-url "$PIP_INDEX_URL"} /src/volume_bridge
 
 ##### Runtime #####
 FROM base
