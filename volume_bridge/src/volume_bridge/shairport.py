@@ -173,7 +173,7 @@ class ShairportSync:
         # the source has started (and if it never does, no "paus" follows).
         # "pfls" (flush) too: AirPlay 2 also flushes on a skip and keeps playing.
         if code in _PLAYING or code in _NOT_PLAYING:
-            self._set_playing(code in _PLAYING)
+            self._set_playing(code in _PLAYING, code.decode("latin-1"))
             return
         if code not in (b"conn", b"disc"):
             return
@@ -187,14 +187,14 @@ class ShairportSync:
             log.info("source %s disconnected", client)
         self._connections += collections.Counter()  # drop zero counts
         if not self._connections:
-            self._set_playing(False)
+            self._set_playing(False, "last source disconnected")
         if bool(self._connections) != was_connected:
             self.on_connection(not was_connected, client)
 
-    def _set_playing(self, playing: bool) -> None:
+    def _set_playing(self, playing: bool, why: str) -> None:
         if playing != self._playing:
             self._playing = playing
-            log.debug("playing: %s", playing)
+            log.info("source %s (%s)", "playing" if playing else "not playing", why)
             self.on_playing(playing)
 
     @property
