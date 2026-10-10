@@ -104,6 +104,8 @@ class OutputRecovery:
         #: Resume what we paused once the DAC is back, even without ``resume``
         #: (it was paused as playback started).
         self._resume_on_back = False
+        #: Shairport Sync reported the pause (else ``source.playing`` can't be trusted).
+        self._pause_confirmed = True
         self._resuming = False
         #: A recovery attempt was made for the current absence of the DAC.
         self._attempted = False
@@ -175,6 +177,9 @@ class OutputRecovery:
         clients = self.source.clients
         # A source that has only just connected may not take remote commands yet:
         # check that it paused (Shairport Sync reports it), and ask again if not.
+        # Pausing twice is harmless. Without a confirmation, assume it paused
+        # anyway (it may have before it ever reported playing), so it's resumed.
+        self._pause_confirmed = False
         for attempt in range(3):
             try:
                 await self.source.pause()
@@ -183,14 +188,14 @@ class OutputRecovery:
                 return
             for _ in range(int(self.pause_check / 0.05)):
                 if not self.source.playing:
+                    self._pause_confirmed = True
                     break
                 await asyncio.sleep(0.05)
-            if not self.source.playing:
+            if self._pause_confirmed:
                 break
-            log.info("the source hasn't paused yet; asking again")
+            log.debug("the source hasn't confirmed the pause yet; asking again")
         else:
-            log.warning("the source didn't pause")
-            return
+            log.info("the source didn't confirm the pause; assuming it paused")
         self._paused = clients
         self._resume_on_back = resume_when_back
         log.info("paused the source while output device %s is gone%s", self.card,
@@ -217,7 +222,7 @@ class OutputRecovery:
             paused, self._paused = self._paused, None
             if not paused or not (paused & self.source.clients):
                 log.info("not resuming: the source that was paused has disconnected")
-            elif self.source.playing:
+            elif self.source.playing and self._pause_confirmed:
                 log.info("not resuming: the source is already playing")
             else:
                 await self.source.play()

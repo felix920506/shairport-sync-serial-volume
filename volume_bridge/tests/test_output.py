@@ -67,6 +67,11 @@ def test_playing_follows_play_state_metadata():
     assert not source.playing
     message(b"ssnc", b"prsm", b"")
     assert source.playing
+    message(b"ssnc", b"pend", b"")
+    message(b"ssnc", b"pbeg", b"")  # AirPlay 2: the stream is set up, not yet playing
+    assert not source.playing
+    message(b"ssnc", b"pffr", b"1/2")  # first frame received
+    assert source.playing
     message(b"ssnc", b"disc", b"a")
     assert not source.playing
 
@@ -316,3 +321,21 @@ async def test_pause_is_retried_until_the_source_pauses():
     await wait_for(lambda: source.commands == ["pause", "pause"] and not source.playing)
     recovery.on_output_change(True)
     await wait_for(lambda: source.commands == ["pause", "pause", "play"])
+
+
+class NeverConfirmsPauseSource(PausableSource):
+    """Pauses, but Shairport Sync never reports it (it paused before it started)."""
+
+    async def pause(self):
+        self.commands.append("pause")
+
+
+async def test_unconfirmed_pause_is_still_resumed():
+    _, _, _, hooks = await make({})
+    source = NeverConfirmsPauseSource()
+    recovery = OutputRecovery("N05XD", source, hooks, pause=True, resume_delay=0.01, pause_check=0.02)
+    recovery.present = False
+    recovery.on_playing(True)
+    await wait_for(lambda: source.commands == ["pause"] * 3)
+    recovery.on_output_change(True)
+    await wait_for(lambda: source.commands == ["pause"] * 3 + ["play"])

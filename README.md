@@ -284,7 +284,8 @@ set `resume_when_output_back = true`. If playback starts while the DAC is missin
 connects that is already playing), the bridge holds the source instead: it pauses it and always resumes it
 once the DAC is ready, so one press of play is enough and the start of the track isn't skipped. A phone that
 has only just connected may not accept remote commands yet, so the bridge checks that the pause took effect
-and asks again (up to 3 times). The bridge resumes once the DAC is back, the `on_output_lost` and
+and asks again (up to 3 times). If it never gets a confirmation, it assumes the source paused, and still
+resumes it. The bridge resumes once the DAC is back, the `on_output_lost` and
 `on_connect` actions have finished (e.g. an amp warming up) and `output_resume_delay` seconds (default 2) have passed. It
 resumes only what it paused: not if the source disconnected, or was played again by hand, in the meantime. If
 the DAC drops again before then, the source stays paused. Pausing and resuming use AirPlay remote control,

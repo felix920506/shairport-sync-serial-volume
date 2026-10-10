@@ -37,7 +37,7 @@ MAIN_INTERFACE = "org.gnome.ShairportSync"
 REMOTE_INTERFACE = "org.gnome.ShairportSync.RemoteControl"
 
 
-_PLAYING = {b"pres", b"prsm", b"pbeg"}
+_PLAYING = {b"pres", b"prsm", b"pffr"}
 _NOT_PLAYING = {b"paus", b"pend"}
 
 
@@ -167,8 +167,11 @@ class ShairportSync:
         if type_ != b"ssnc":
             return
         # Play state: AirPlay 2 sends "pres"/"paus" on play/pause, classic AirPlay
-        # "prsm" on resume; "pbeg"/"pend" start/end a stream. "pfls" (flush) is
-        # left out: AirPlay 2 also flushes on a skip and then just keeps playing.
+        # "prsm" on resume, and "pffr" when the first audio frame arrives (the
+        # only start signal for realtime streams); "pend" ends a stream. "pbeg"
+        # is left out: for AirPlay 2 it comes when the stream is set up, before
+        # the source has started (and if it never does, no "paus" follows).
+        # "pfls" (flush) too: AirPlay 2 also flushes on a skip and keeps playing.
         if code in _PLAYING or code in _NOT_PLAYING:
             self._set_playing(code in _PLAYING)
             return
