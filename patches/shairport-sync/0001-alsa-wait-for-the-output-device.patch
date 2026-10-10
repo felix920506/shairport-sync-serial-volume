@@ -1,0 +1,46 @@
+diff --git a/audio_alsa.c b/audio_alsa.c
+index f843fde..9bf2227 100644
+--- a/audio_alsa.c
++++ b/audio_alsa.c
+@@ -33,6 +33,7 @@
+ #include <memory.h>
+ #include <pthread.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <unistd.h>
+ 
+ 
+@@ -2415,9 +2416,31 @@ static int32_t get_configuration(unsigned int channels, unsigned int rate, unsig
+   // pass in SPS_FORMAT_AUTO because we want the best (deepest) format.
+ 
+   // first, check that the device is there!
++  // If it isn't (yet), wait up to ALSA_DEVICE_WAIT seconds for it to appear: some USB DACs are
++  // off the bus while they start up. Returning an error here instead makes the player use the
++  // error code as an output format and die.
++  double wait_seconds = 0.0;
++  char *wait_setting = getenv("ALSA_DEVICE_WAIT");
++  if (wait_setting != NULL)
++    wait_seconds = atof(wait_setting);
+   snd_pcm_t *temp_alsa_handle = NULL;
+-  int response = snd_pcm_open(&temp_alsa_handle, alsa_out_dev, SND_PCM_STREAM_PLAYBACK, 0);
+-  ;
++  int response;
++  int waited_ms = 0;
++  while (1) {
++    response = snd_pcm_open(&temp_alsa_handle, alsa_out_dev, SND_PCM_STREAM_PLAYBACK, 0);
++    if (((response != -ENOENT) && (response != -ENODEV) && (response != -EACCES)) ||
++        (waited_ms >= wait_seconds * 1000))
++      break;
++    if (waited_ms == 0)
++      inform("alsa: output device \"%s\" is not available; waiting up to %.1f seconds for it.",
++             alsa_out_dev, wait_seconds);
++    usleep(100000);
++    waited_ms += 100;
++  }
++  if (waited_ms > 0)
++    inform("alsa: output device \"%s\" %s after %.1f seconds.", alsa_out_dev,
++           response == 0 || response == -EBUSY ? "appeared" : "still not available",
++           waited_ms / 1000.0);
+   if ((response == 0) && (temp_alsa_handle != NULL)) {
+     response = snd_pcm_close(temp_alsa_handle);
+     if (response != 0) {

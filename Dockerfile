@@ -49,6 +49,9 @@ RUN git init -q . \
  && git remote add origin https://github.com/mikebrady/shairport-sync.git \
  && git fetch -q --depth=1 origin "${SHAIRPORT_SYNC_REF}" \
  && git checkout -q FETCH_HEAD
+# Local fixes on top of upstream (see each patch for why).
+COPY patches/shairport-sync /src/patches
+RUN git apply -v /src/patches/*.patch
 WORKDIR /src/shairport-sync/build
 # Deliberately minimal: ALSA output only, no soxr, no convolution, no loudness DSP.
 # The D-Bus interface is what the volume bridge talks to; the metadata UDP
@@ -107,6 +110,7 @@ COPY --chmod=755 rootfs/usr/local/bin/entrypoint.sh rootfs/usr/local/bin/output-
 ENV ENABLE_AVAHI=1 \
     ENABLE_NQPTP=1 \
     ENABLE_SER2NET=0 \
+    ALSA_DEVICE_WAIT=30 \
     SER2NET_CONFIG=/etc/ser2net/ser2net.yaml \
     ENABLE_VOLUME_BRIDGE=1 \
     VOLUME_BRIDGE_CONFIG=/etc/volume-bridge.toml

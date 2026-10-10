@@ -28,10 +28,12 @@ and `SPS_NAME`. Host networking and `/dev/snd` are required.
 passing `devices: /dev/snd`, which would copy the device nodes once at start. That way a DAC that reappears
 is usable right away. Name the card (`hw:CARD=N05XD`), because its number can change when it reappears.
 If the DAC is missing when playback starts (some DACs are off the bus while they start up), Shairport Sync
-keeps retrying, and playback starts once the DAC appears. Without a handler, Shairport Sync would exit and
-end the AirPlay session. `run_this_if_an_unfixable_error_is_detected` in `config/shairport-sync.conf` points
-at a handler that only logs. If the DAC disappears during playback, the output stays silent until playback
-stops. Pause and play again once the DAC is back. On a desktop host,
+waits up to `ALSA_DEVICE_WAIT` seconds (default 30) for it to appear, then starts playing. That wait comes
+from a patch (`patches/shairport-sync/`): upstream fails at once and then crashes on the error. If the DAC
+still isn't there, Shairport Sync exits, the container restarts and the AirPlay session ends. If the DAC
+disappears during playback, Shairport Sync doesn't exit: `run_this_if_an_unfixable_error_is_detected` in
+`config/shairport-sync.conf` points at a handler that only logs. The output stays silent until playback
+stops; pause and play again once the DAC is back. On a desktop host,
 also keep PipeWire/PulseAudio off the DAC: if they hold it open, Shairport Sync can't use it.
 
 Shairport Sync picks the deepest sample format the device offers. Some USB DACs advertise a 32-bit mode
