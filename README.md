@@ -279,9 +279,13 @@ Assistant automation can tell this apart from a connect.
 When the DAC disappears during playback, the bridge also pauses the source (the phone), with or without
 `on_output_lost` actions. Otherwise the music that plays while the DAC is gone is skipped, because playback
 keeps following the source's clock. Turn this off with `pause_while_output_lost = false` under `[shairport]`.
-The source stays paused until you press play. To resume it automatically, set
-`resume_when_output_back = true`. The bridge then resumes it once the DAC is back, the `on_output_lost`
-actions have finished (e.g. an amp warming up) and `output_resume_delay` seconds (default 2) have passed. It
+After a dropout during playback, the source stays paused until you press play. To resume it automatically,
+set `resume_when_output_back = true`. If playback starts while the DAC is missing (you press play, or a phone
+connects that is already playing), the bridge holds the source instead: it pauses it and always resumes it
+once the DAC is ready, so one press of play is enough and the start of the track isn't skipped. A phone that
+has only just connected may not accept remote commands yet, so the bridge checks that the pause took effect
+and asks again (up to 3 times). The bridge resumes once the DAC is back, the `on_output_lost` and
+`on_connect` actions have finished (e.g. an amp warming up) and `output_resume_delay` seconds (default 2) have passed. It
 resumes only what it paused: not if the source disconnected, or was played again by hand, in the meantime. If
 the DAC drops again before then, the source stays paused. Pausing and resuming use AirPlay remote control,
 which Shairport Sync marks as experimental. Some apps (live radio) resume at the live point rather than where

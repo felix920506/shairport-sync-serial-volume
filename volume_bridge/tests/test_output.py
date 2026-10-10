@@ -159,7 +159,7 @@ async def test_resume_waits_for_the_output_lost_hooks():
     await wait_for(lambda: source.commands == ["pause", "play"])
 
 
-async def test_no_resume_if_the_source_left_or_resumed_itself():
+async def test_no_resume_if_the_source_left():
     source, _, _, recovery = await make_recovery()
     recovery.on_output_change(False)
     await wait_for(lambda: source.commands == ["pause"])
@@ -168,13 +168,14 @@ async def test_no_resume_if_the_source_left_or_resumed_itself():
     await asyncio.sleep(0.1)
     assert source.commands == ["pause"]
 
-    source, _, _, recovery = await make_recovery()
+
+async def test_no_resume_if_played_by_hand_after_the_dac_is_back():
+    source, _, _, recovery = await make_recovery(resume=False)
     recovery.on_output_change(False)
     await wait_for(lambda: source.commands == ["pause"])
-    source.playing = True
-    recovery.on_playing(True)  # the user pressed play meanwhile
-    source.playing = False
     recovery.on_output_change(True)
+    source.playing = True
+    recovery.on_playing(True)  # the user pressed play once it was back
     await asyncio.sleep(0.1)
     assert source.commands == ["pause"]
 
@@ -234,9 +235,11 @@ async def test_recovery_when_playback_starts_with_the_dac_missing():
     assert amp.received_commands == [] and source.commands == []
     source.playing = True
     recovery.on_playing(True)
-    await wait_for(lambda: source.commands == ["pause"])
+    await wait_for(lambda: source.commands == ["pause"])  # held...
     await hooks.idle()
     assert amp.received_commands == [("PWR 1", False)]
+    recovery.on_output_change(True)
+    await wait_for(lambda: source.commands == ["pause", "play"])  # ...until the DAC is ready, without resume
 
 
 async def test_one_recovery_attempt_per_absence():
@@ -245,12 +248,13 @@ async def test_one_recovery_attempt_per_absence():
     await wait_for(lambda: source.commands == ["pause"])
     await hooks.idle()
     source.playing = True
-    recovery.on_playing(True)  # played again by hand, DAC still missing: wait for it
-    await asyncio.sleep(0.05)
+    recovery.on_playing(True)  # played again by hand, DAC still missing: hold it, no new attempt
+    await wait_for(lambda: source.commands == ["pause", "pause"])
     await hooks.idle()
-    assert amp.received_commands == [("PWR 1", False)] and source.commands == ["pause"]
+    assert amp.received_commands == [("PWR 1", False)]
 
-    recovery.on_output_change(True)  # back: the next absence gets a new attempt
+    recovery.on_output_change(True)  # back: resumes the held source; the next absence gets a new attempt
+    await wait_for(lambda: source.commands == ["pause", "pause", "play"])
     source.playing = False
     recovery.on_output_change(False)
     source.playing = True
@@ -268,11 +272,47 @@ async def test_on_connect_while_the_dac_is_missing_is_the_attempt():
     hooks.fire("connect")
     source.playing = True
     recovery.on_playing(True)
-    await asyncio.sleep(0.05)
+    await wait_for(lambda: source.commands == ["pause"])  # held, but no second attempt
     await hooks.idle()
-    assert amp.received_commands == [("PWR 1", False)] and source.commands == []
+    assert amp.received_commands == [("PWR 1", False)]
 
     recovery.on_connection(False)  # a new session gets a new attempt
     recovery.on_playing(True)
     await hooks.idle()
     assert amp.received_commands == [("PWR 1", False)] * 2
+
+
+async def test_resume_waits_for_the_connect_hooks():
+    source, _, hooks, recovery = await make_recovery({"on_connect": [{"delay": 0.2}]}, resume=False)
+    source.playing = False
+    recovery.on_output_change(False)
+    recovery.on_connection(True)
+    hooks.fire("connect")  # e.g. the amplifier warming up
+    source.playing = True
+    recovery.on_playing(True)
+    await wait_for(lambda: source.commands == ["pause"])
+    recovery.on_output_change(True)  # the DAC is ready before the amplifier
+    await asyncio.sleep(0.1)
+    assert source.commands == ["pause"]
+    await wait_for(lambda: source.commands == ["pause", "play"])
+
+
+class SlowToPauseSource(PausableSource):
+    """Ignores the first pause, like a phone that has only just connected."""
+
+    async def pause(self):
+        self.commands.append("pause")
+        if self.commands.count("pause") > 1:
+            self.playing = False
+
+
+async def test_pause_is_retried_until_the_source_pauses():
+    _, _, _, hooks = await make({})
+    source = SlowToPauseSource()
+    recovery = OutputRecovery("N05XD", source, hooks, pause=True, resume_delay=0.01, pause_check=0.05)
+    recovery.present = False  # the DAC isn't there yet...
+    recovery.on_connection(True)
+    recovery.on_playing(True)  # ...when a source connects that is already playing
+    await wait_for(lambda: source.commands == ["pause", "pause"] and not source.playing)
+    recovery.on_output_change(True)
+    await wait_for(lambda: source.commands == ["pause", "pause", "play"])

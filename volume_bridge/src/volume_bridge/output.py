@@ -75,27 +75,35 @@ class OutputRecovery:
     source once the DAC is back.
 
     "Missing while playing" is either the DAC disappearing during playback, or
-    playback starting while it's gone. One recovery attempt is made per absence:
+    playback starting while it's gone. In the second case, with ``pause``, the
+    source is held (paused) and always resumed once the DAC is ready, whatever
+    ``resume`` says: pressing play once is enough. One recovery attempt is made
+    per absence:
     once the hooks have run (or on_connect hooks ran while the DAC was missing),
     starting playback again doesn't rerun them until the DAC has come back or
     the last source has disconnected.
 
     It resumes only what it paused: not if the source has disconnected, or
     started playing again on its own, in the meantime. Before resuming it waits
-    for the output_lost hooks to finish (an amplifier warming up) and then
+    for the output_lost and connect hooks to finish (an amplifier warming up) and then
     ``resume_delay`` seconds, so the DAC has settled.
     """
 
     def __init__(self, card: str, source: Any, hooks: Any, pause: bool = False,
-                 resume: bool = False, resume_delay: float = 2.0) -> None:
+                 resume: bool = False, resume_delay: float = 2.0, pause_check: float = 1.5) -> None:
         self.card = card
         self.source = source
         self.hooks = hooks
         self.pause = pause
         self.resume = resume
         self.resume_delay = resume_delay
+        #: Seconds to wait for the source to report that it paused before asking again.
+        self.pause_check = pause_check
         #: The sources connected when we paused; None when we haven't paused.
         self._paused: frozenset[str] | None = None
+        #: Resume what we paused once the DAC is back, even without ``resume``
+        #: (it was paused as playback started).
+        self._resume_on_back = False
         self._resuming = False
         #: A recovery attempt was made for the current absence of the DAC.
         self._attempted = False
@@ -130,18 +138,20 @@ class OutputRecovery:
         if not playing:
             return
         if self._paused is not None and not self._resuming:
-            log.info("source resumed on its own: not resuming it when the output device is back")
-            self._paused = None
+            self._paused = None  # played by hand: handled below if the DAC is still missing
+            if self.present:
+                log.info("source resumed on its own: not resuming it when the output device is back")
         if self.present:
             return
         if self._attempted or self.hooks.pending("output_lost"):
             log.info("playback started while output device %s is missing; still waiting for it "
                      "after the last recovery attempt", self.card)
-            return
-        log.info("playback started while output device %s is missing", self.card)
-        self._fire()
+        else:
+            log.info("playback started while output device %s is missing", self.card)
+            self._fire()
         if self.pause:
-            self._start(self._pause())
+            # Hold the source until the DAC is ready rather than skip the start.
+            self._start(self._pause(resume_when_back=True))
 
     def on_connection(self, connected: bool) -> None:
         if connected:
@@ -161,20 +171,35 @@ class OutputRecovery:
             self._task.cancel()
         self._task = asyncio.create_task(coro, name="output-recovery")
 
-    async def _pause(self) -> None:
+    async def _pause(self, resume_when_back: bool = False) -> None:
         clients = self.source.clients
-        try:
-            await self.source.pause()
-        except Exception as e:
-            log.warning("couldn't pause the source: %s", e)
+        # A source that has only just connected may not take remote commands yet:
+        # check that it paused (Shairport Sync reports it), and ask again if not.
+        for attempt in range(3):
+            try:
+                await self.source.pause()
+            except Exception as e:
+                log.warning("couldn't pause the source: %s", e)
+                return
+            for _ in range(int(self.pause_check / 0.05)):
+                if not self.source.playing:
+                    break
+                await asyncio.sleep(0.05)
+            if not self.source.playing:
+                break
+            log.info("the source hasn't paused yet; asking again")
+        else:
+            log.warning("the source didn't pause")
             return
         self._paused = clients
-        log.info("paused the source while output device %s is gone", self.card)
+        self._resume_on_back = resume_when_back
+        log.info("paused the source while output device %s is gone%s", self.card,
+                 " (resuming when it's ready)" if resume_when_back else "")
         if self.present:  # it came back while we were pausing
             self._back_while_paused()
 
     def _back_while_paused(self) -> None:
-        if not self.resume:
+        if not (self.resume or self._resume_on_back):
             log.info("output device %s is back; the source stays paused "
                      "(resume_when_output_back is off)", self.card)
             self._paused = None
@@ -185,7 +210,8 @@ class OutputRecovery:
 
     async def _resume(self) -> None:
         try:
-            while self.hooks.pending("output_lost"):
+            # The DAC may be back before the amplifier has warmed up.
+            while self.hooks.pending("output_lost") or self.hooks.pending("connect"):
                 await asyncio.sleep(0.2)
             await asyncio.sleep(self.resume_delay)
             paused, self._paused = self._paused, None
