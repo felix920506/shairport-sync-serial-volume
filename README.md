@@ -95,6 +95,11 @@ timing settles: Shairport Sync's statistics showed up to ~1500 PPM of correction
 `disable_synchronization = "yes"` in the `alsa` section; nothing is ever inserted or dropped then, and
 the stream stays bit-perfect.
 
+To see what sync correction is doing, set `SHAIRPORT_STATISTICS: "1"` in the container's environment.
+Shairport Sync then logs a line every few seconds with the sync error, the corrections in PPM ("All Sync
+PPM") and the minimum DAC queue (0 means an underrun). `SHAIRPORT_LOG_VERBOSITY: "1"` to `"3"` adds its
+debug messages, e.g. each ALSA underrun.
+
 ## Volume bridge
 
 `volume_bridge/` is a small Python service (asyncio + [dbus-fast](https://github.com/Bluetooth-Devices/dbus-fast)).

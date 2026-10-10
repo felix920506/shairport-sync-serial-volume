@@ -84,6 +84,18 @@ if [ -n "${ALSA_OUTPUT_FORMAT:-}" ]; then
   log "ALSA output format: $ALSA_OUTPUT_FORMAT"
 fi
 [ -n "${SPS_NAME:-}" ] && sps_args+=(--name "$SPS_NAME")
+# Debugging: sync/latency statistics every few seconds, and debug messages.
+if [ "${SHAIRPORT_STATISTICS:-0}" = "1" ]; then
+  sps_args+=(--statistics)
+  log "Shairport Sync statistics enabled"
+fi
+case "${SHAIRPORT_LOG_VERBOSITY:-0}" in
+  0) ;;
+  1) sps_args+=(-v) ;;
+  2) sps_args+=(-vv) ;;
+  3) sps_args+=(-vvv) ;;
+  *) log "invalid SHAIRPORT_LOG_VERBOSITY \"$SHAIRPORT_LOG_VERBOSITY\" (0-3)"; exit 1 ;;
+esac
 sps_args+=("$@")
 if [ -n "${ALSA_DEVICE:-}" ]; then
   sps_args+=(-- -d "$ALSA_DEVICE")

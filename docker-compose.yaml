@@ -24,6 +24,11 @@ services:
       # Seconds to wait at playback start for a DAC that isn't there yet
       # (e.g. a USB DAC still starting up). Default 30.
       # ALSA_DEVICE_WAIT: "30"
+      # Debugging: Shairport Sync's sync statistics every few seconds (sync
+      # error, drift corrections in PPM, minimum DAC queue = underruns), and its
+      # debug messages (1-3, more verbose).
+      # SHAIRPORT_STATISTICS: "1"
+      # SHAIRPORT_LOG_VERBOSITY: "1"
       # Set to 0 if the host already runs avahi-daemon / nqptp.
       ENABLE_AVAHI: "1"
       ENABLE_NQPTP: "1"
