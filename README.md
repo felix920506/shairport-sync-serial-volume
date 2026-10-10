@@ -32,8 +32,8 @@ waits up to `ALSA_DEVICE_WAIT` seconds (default 30) for it to appear, then start
 from a patch (`patches/shairport-sync/`): upstream fails at once and then crashes on the error. If the DAC
 still isn't there, Shairport Sync exits, the container restarts and the AirPlay session ends. If the DAC
 disappears during playback, Shairport Sync doesn't exit: `run_this_if_an_unfixable_error_is_detected` in
-`config/shairport-sync.conf` points at a handler that only logs. The output stays silent until playback
-stops; pause and play again once the DAC is back. On a desktop host,
+`config/shairport-sync.conf` points at a handler that only logs, and a second patch closes the dead device so
+it's reopened as soon as the DAC is back. Sound returns without reconnecting. On a desktop host,
 also keep PipeWire/PulseAudio off the DAC: if they hold it open, Shairport Sync can't use it.
 
 Shairport Sync picks the deepest sample format the device offers. Some USB DACs advertise a 32-bit mode

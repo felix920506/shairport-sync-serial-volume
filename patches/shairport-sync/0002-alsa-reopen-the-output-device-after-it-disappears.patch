@@ -1,0 +1,20 @@
+diff --git a/audio_alsa.c b/audio_alsa.c
+index 9bf2227..476d894 100644
+--- a/audio_alsa.c
++++ b/audio_alsa.c
+@@ -2037,8 +2037,14 @@ static int do_play(void *buf, int samples) {
+       debug(1, "alsa: SND_PCM_STATE_* %d, error %d (\"%s\") writing %d samples to alsa device.",
+             state, ret, (char *)errorstring, samples);
+     }
+-    if ((ret == -ENOENT) || (ret == -ENODEV)) // if the device isn't there...
++    if ((ret == -ENOENT) || (ret == -ENODEV)) { // if the device isn't there...
+       handle_unfixable_error(-ret);
++      // ...close it, so that play() reopens it once it's back (e.g. a USB DAC that was switched
++      // off or to another input). Otherwise the dead handle is kept until the session ends.
++      inform("alsa: output device \"%s\" has gone; it will be reopened when it is back.",
++             alsa_out_dev);
++      do_close();
++    }
+   }
+   return ret;
+ }
