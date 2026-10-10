@@ -24,6 +24,9 @@ service = "org.gnome.ShairportSync"
 # UDP port for Shairport Sync's metadata (metadata.socket_port in
 # shairport-sync.conf); tells the bridge when a source connects/disconnects.
 metadata_port = 5555
+# The ALSA device Shairport Sync plays to, watched for on_output_lost. Default:
+# the container's ALSA_DEVICE.
+# alsa_device = "hw:CARD=N05XD"
 
 [amplifier]
 # "stub", "tcp-serial", or "your.module:YourAmplifierClass"
@@ -122,6 +125,10 @@ control_port = 7001
 #   on_disconnect     the last source disconnects
 #   on_session_start  playback starts (Shairport Sync's "active" state)
 #   on_session_end    active_state_timeout after playback stops
+#   on_output_lost    the DAC (ALSA card) disappears while audio is playing,
+#                     e.g. it went to standby: power it up again
+# Instead of a list of actions, an event can name another event to run its
+# actions, e.g. on_output_lost = "on_connect".
 # Actions run in order; a failing action is logged and the next one still runs:
 #   { send = "PWR 1" }               a command through the amplifier connection,
 #                                    wrapped in command_prefix/command_suffix

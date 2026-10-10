@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +20,8 @@ class Config:
     shairport_service: str = "org.gnome.ShairportSync"
     #: UDP port on 127.0.0.1 where Shairport Sync sends metadata (0 = don't listen).
     shairport_metadata_port: int = 5555
+    #: ALSA device Shairport Sync plays to, for on_output_lost (default: $ALSA_DEVICE).
+    alsa_device: str = ""
     bridge: BridgeSettings = field(default_factory=BridgeSettings)
     amplifier_type: str = "stub"
     amplifier_scale: LevelScale = field(default_factory=LevelScale)
@@ -40,7 +43,8 @@ def parse_config(data: dict[str, Any]) -> Config:
 
     bridge = dict(data.get("bridge", {}))
     log_level = bridge.pop("log_level", "INFO")
-    shairport = _pick(data.get("shairport", {}), ("bus", "service", "metadata_port"), "shairport")
+    shairport = _pick(data.get("shairport", {}), ("bus", "service", "metadata_port", "alsa_device"),
+                      "shairport")
 
     amplifier = dict(data.get("amplifier", {}))
     amp_type = amplifier.pop("type", "stub")
@@ -55,6 +59,7 @@ def parse_config(data: dict[str, Any]) -> Config:
         shairport_bus=shairport.get("bus", "system"),
         shairport_service=shairport.get("service", "org.gnome.ShairportSync"),
         shairport_metadata_port=int(shairport.get("metadata_port", 5555)),
+        alsa_device=str(shairport.get("alsa_device", os.environ.get("ALSA_DEVICE", ""))),
         bridge=BridgeSettings(**_pick(
             bridge, ("source_echo_window", "amplifier_echo_window", "max_echo_window", "use_amplifier_mute"), "bridge")),
         amplifier_type=amp_type,

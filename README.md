@@ -263,6 +263,15 @@ The `[hooks]` section runs actions when something happens:
 | `on_disconnect` | The last source disconnects |
 | `on_session_start` | Playback starts (Shairport Sync's "active" state) |
 | `on_session_end` | `active_state_timeout` after playback stops |
+| `on_output_lost` | The DAC disappears from the system while audio is playing (not paused) |
+
+Instead of a list of actions, an event can name another event to run the same actions. For example,
+`on_output_lost = "on_connect"` runs the power-up procedure again when the DAC drops out during playback.
+The bridge checks every 0.5 s whether the ALSA card in `ALSA_DEVICE` (e.g. `hw:CARD=N05XD`) is listed under
+`/proc/asound`. It runs the actions once per dropout. If the DAC flickers while they're still running, they
+aren't queued again. Shairport Sync reopens the DAC once it's back, so sound returns without reconnecting
+(see "USB DACs that come and go"). The shell actions get `VOLUME_BRIDGE_EVENT=output_lost`, so a Home
+Assistant automation can tell this apart from a connect.
 
 Each event runs its actions in order, or several at once with `parallel`. If an action fails, the bridge logs
 it and runs the next one. Events are handled one at a time, so a disconnect's actions never overtake the
@@ -306,8 +315,8 @@ with `shell = "/opt/hooks/wake.sh"`. The image has `curl`, `bash` and `python3`.
 than `.local` names, because the container doesn't resolve mDNS names. Hook commands run as the
 unprivileged `shairport-sync` user.
 
-`on_connect` and `on_disconnect` need the metadata socket described under Caveats. Without it, only the
-session events fire.
+`on_connect`, `on_disconnect` and `on_output_lost` need the metadata socket described under Caveats. Without
+it, only the session events fire.
 
 ### Developing the bridge
 

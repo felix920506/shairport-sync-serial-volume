@@ -118,6 +118,9 @@ ignore_patterns = []
 #     { shell = 'curl -sf -m 10 -X POST -H "Content-Type: application/json" -d "{\"event\": \"$VOLUME_BRIDGE_EVENT\", \"source\": \"$VOLUME_BRIDGE_SOURCE\"}" http://192.168.1.10:8123/api/webhook/airplay-living-room' },
 #   ] },
 # ]
+# If the DAC drops out during playback (standby, another input), run the same
+# power-up procedure again:
+# on_output_lost = "on_connect"
 # on_disconnect = [
 #   { parallel = [
 #     { send = "PWR 0" },

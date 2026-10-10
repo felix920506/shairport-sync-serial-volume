@@ -4,6 +4,11 @@ Typical use: wake equipment that went to standby (power the amplifier on over
 its serial port, or ask Home Assistant to switch something on) when a phone
 connects, and put it back to sleep later.
 
+``on_output_lost`` runs when the DAC (the ALSA card Shairport Sync plays to)
+disappears while audio is playing, e.g. to power it up again. Instead of a list
+of actions, an event can name another event to run its actions:
+``on_output_lost = "on_connect"``.
+
 Each event has a list of actions, run in order:
 
 * ``send``  -- a command through the amplifier backend's connection (the same
@@ -36,6 +41,7 @@ the connect's.
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
 import os
 import signal
@@ -53,6 +59,7 @@ EVENTS = {
     "disconnect": "on_disconnect",
     "session_start": "on_session_start",
     "session_end": "on_session_end",
+    "output_lost": "on_output_lost",
 }
 
 _ACTIONS = {
@@ -96,9 +103,17 @@ def parse_hooks(section: Mapping[str, Any]) -> Hooks:
                          f"(expected {', '.join(EVENTS.values())})")
     hooks: Hooks = {}
     for key, actions in section.items():
+        if isinstance(actions, str):
+            continue  # another event's name: resolved below
         if not isinstance(actions, list):
-            raise ValueError(f"[hooks] {key} must be a list of actions")
+            raise ValueError(f"[hooks] {key} must be a list of actions, or another event's name "
+                             f"(e.g. \"on_connect\") to run its actions")
         hooks[keys[key]] = tuple(_parse_action(a, f"[hooks] {key}[{i}]") for i, a in enumerate(actions))
+    for key, other in section.items():
+        if isinstance(other, str):
+            if other not in keys or not isinstance(section.get(other), list):
+                raise ValueError(f"[hooks] {key} = {other!r}: not an event with a list of actions")
+            hooks[keys[key]] = hooks[keys[other]]
     return hooks
 
 
@@ -163,11 +178,13 @@ class HookRunner:
         self._queue: asyncio.Queue[tuple[str, dict[str, str]]] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._holding = False
+        self._unfinished: collections.Counter[str] = collections.Counter()
 
     def fire(self, event: str, client: str = "") -> None:
         """Queue the actions for ``event`` (no-op if it has none)."""
         if not self.hooks.get(event):
             return
+        self._unfinished[event] += 1
         self._queue.put_nowait((event, self._environment(event, client)))
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._worker(), name="hooks")
@@ -195,6 +212,7 @@ class HookRunner:
                 await self._run_sequence(event, self.hooks[event], env)
             finally:
                 self._release()
+                self._unfinished[event] -= 1
             log.info("%s hooks done", event)
 
     def _release(self) -> None:
@@ -265,6 +283,10 @@ class HookRunner:
             raise RuntimeError(f"exit status {proc.returncode}" + (f": {text[-500:]}" if text else ""))
         if text:
             log.debug("hook output: %s", text[-500:])
+
+    def pending(self, event: str) -> bool:
+        """True while ``event``'s actions are queued or running."""
+        return self._unfinished[event] > 0
 
     async def idle(self) -> None:
         """Wait until all queued events have been handled (used by tests)."""

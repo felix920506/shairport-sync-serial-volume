@@ -37,6 +37,10 @@ MAIN_INTERFACE = "org.gnome.ShairportSync"
 REMOTE_INTERFACE = "org.gnome.ShairportSync.RemoteControl"
 
 
+_PLAYING = {b"pres", b"prsm", b"pbeg"}
+_NOT_PLAYING = {b"paus", b"pend"}
+
+
 class _MetadataProtocol(asyncio.DatagramProtocol):
     """Receives Shairport Sync's UDP metadata: type (4 bytes), code (4 bytes), data."""
 
@@ -65,6 +69,7 @@ class ShairportSync:
         # default (0 dB = full scale), which must never reach the amplifier.
         self._volume_set = False
         self._active = False
+        self._playing = False
         self._metadata: asyncio.DatagramTransport | None = None
         # None until the first metadata packet: until then, fall back to "active".
         self._connections: collections.Counter[str] | None = None
@@ -77,6 +82,12 @@ class ShairportSync:
     @property
     def active(self) -> bool:
         return self._active
+
+    @property
+    def playing(self) -> bool:
+        """True while audio is playing: not paused, unlike ``active``, which
+        lasts through pauses (needs metadata)."""
+        return self._playing
 
     @property
     def connected(self) -> bool:
@@ -151,7 +162,18 @@ class ShairportSync:
             log.info("receiving Shairport Sync metadata")
             self._connections = collections.Counter()
         log.debug("metadata %s/%s %r", type_.decode("latin-1"), code.decode("latin-1"), data[:64])
-        if type_ != b"ssnc" or code not in (b"conn", b"disc"):
+        if type_ != b"ssnc":
+            return
+        # Play state: AirPlay 2 sends "pres"/"paus" on play/pause, classic AirPlay
+        # "prsm" on resume; "pbeg"/"pend" start/end a stream. "pfls" (flush) is
+        # left out: AirPlay 2 also flushes on a skip and then just keeps playing.
+        if code in _PLAYING or code in _NOT_PLAYING:
+            playing = code in _PLAYING
+            if playing != self._playing:
+                self._playing = playing
+                log.debug("playing: %s", playing)
+            return
+        if code not in (b"conn", b"disc"):
             return
         client = data.decode("utf-8", errors="replace")
         was_connected = bool(self._connections)
@@ -162,6 +184,8 @@ class ShairportSync:
             self._connections[client] -= 1
             log.info("source %s disconnected", client)
         self._connections += collections.Counter()  # drop zero counts
+        if not self._connections:
+            self._playing = False
         if bool(self._connections) != was_connected:
             self.on_connection(not was_connected, client)
 
