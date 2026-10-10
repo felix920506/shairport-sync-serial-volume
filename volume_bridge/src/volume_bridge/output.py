@@ -1,9 +1,10 @@
 """Watches whether the DAC that Shairport Sync plays to is present.
 
 USB DACs drop off the bus when they're switched off, go to standby or switch
-to another input. The kernel lists each sound card under /proc/asound (by
-number, "card1", and by name, "N05XD"), so the watcher polls for the card
-named in the ALSA device string.
+to another input. The kernel lists each sound card in sysfs as
+/sys/class/sound/cardN, with its name in cardN/id ("N05XD"), so the watcher
+polls for the card named in the ALSA device string. (/proc/asound would say
+the same, but Docker hides it inside containers.)
 """
 
 from __future__ import annotations
@@ -16,35 +17,47 @@ from typing import Callable
 
 log = logging.getLogger(__name__)
 
+SYSFS = Path("/sys/class/sound")
 
-def alsa_card_path(device: str, proc: Path = Path("/proc/asound")) -> Path | None:
-    """The /proc entry for the card in an ALSA device string such as
-    "hw:CARD=N05XD", "plughw:1,0" or "hw:N05XD", or None if it names no card
-    (e.g. "default")."""
+
+def alsa_card(device: str) -> str | None:
+    """The card in an ALSA device string such as "hw:CARD=N05XD", "plughw:1,0"
+    or "hw:N05XD" (a name or a number), or None if it names no card ("default")."""
     m = re.search(r"CARD=([^,]+)", device) or re.match(r"^\w+:([^,=]+)(?:,|$)", device)
-    if not m:
-        return None
-    card = m.group(1).strip('"')
-    return proc / (f"card{card}" if card.isdigit() else card)
+    return m.group(1).strip('"') if m else None
+
+
+def card_present(card: str, sysfs: Path = SYSFS) -> bool:
+    if card.isdigit():
+        return (sysfs / f"card{card}").exists()
+    for path in sysfs.glob("card*/id"):  # the number can change when the card reappears
+        try:
+            if path.read_text().strip() == card:
+                return True
+        except OSError:
+            pass  # removed while we looked
+    return False
 
 
 class OutputWatcher:
-    def __init__(self, path: Path, on_change: Callable[[bool], None], interval: float = 0.5) -> None:
-        self.path = path
+    def __init__(self, card: str, on_change: Callable[[bool], None], interval: float = 0.5,
+                 sysfs: Path = SYSFS) -> None:
+        self.card = card
         self.on_change = on_change
         self.interval = interval
-        self.present = path.exists()
+        self.sysfs = sysfs
+        self.present = card_present(card, sysfs)
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
-        log.info("watching output device %s (%s)", self.path.name,
+        log.info("watching output device %s (%s)", self.card,
                  "present" if self.present else "not present")
         self._task = asyncio.create_task(self._run(), name="output-watcher")
 
     async def _run(self) -> None:
         while True:
             await asyncio.sleep(self.interval)
-            present = self.path.exists()
+            present = card_present(self.card, self.sysfs)
             if present != self.present:
                 self.present = present
                 self.on_change(present)

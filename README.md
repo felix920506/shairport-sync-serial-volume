@@ -268,7 +268,7 @@ The `[hooks]` section runs actions when something happens:
 Instead of a list of actions, an event can name another event to run the same actions. For example,
 `on_output_lost = "on_connect"` runs the power-up procedure again when the DAC drops out during playback.
 The bridge checks every 0.5 s whether the ALSA card in `ALSA_DEVICE` (e.g. `hw:CARD=N05XD`) is listed under
-`/proc/asound`. It runs the actions once per dropout. If the DAC flickers while they're still running, they
+`/sys/class/sound` (Docker hides `/proc/asound` inside containers). It runs the actions once per dropout. If the DAC flickers while they're still running, they
 aren't queued again. Shairport Sync reopens the DAC once it's back, so sound returns without reconnecting
 (see "USB DACs that come and go"). The shell actions get `VOLUME_BRIDGE_EVENT=output_lost`, so a Home
 Assistant automation can tell this apart from a connect.

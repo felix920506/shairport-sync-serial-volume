@@ -1,31 +1,41 @@
-from pathlib import Path
+import shutil
 
 import pytest
 
 from volume_bridge.__main__ import create_output_watcher
 from volume_bridge.config import parse_config
 from volume_bridge.hooks import parse_hooks
-from volume_bridge.output import OutputWatcher, alsa_card_path
+from volume_bridge.output import OutputWatcher, alsa_card, card_present
 from volume_bridge.shairport import ShairportSync
 
 from test_amplifiers import wait_for
 from test_hooks import make
 
-PROC = Path("/proc/asound")
-
-
-@pytest.mark.parametrize("device, path", [
-    ("hw:CARD=N05XD", PROC / "N05XD"),
-    ("hw:CARD=N05XD,DEV=0", PROC / "N05XD"),
-    ("plughw:CARD=\"N05XD\"", PROC / "N05XD"),
-    ("hw:N05XD", PROC / "N05XD"),
-    ("hw:1", PROC / "card1"),
-    ("plughw:1,0", PROC / "card1"),
+@pytest.mark.parametrize("device, card", [
+    ("hw:CARD=N05XD", "N05XD"),
+    ("hw:CARD=N05XD,DEV=0", "N05XD"),
+    ("plughw:CARD=\"N05XD\"", "N05XD"),
+    ("hw:N05XD", "N05XD"),
+    ("hw:1", "1"),
+    ("plughw:1,0", "1"),
     ("default", None),
     ("", None),
 ])
-def test_alsa_card_path(device, path):
-    assert alsa_card_path(device) == path
+def test_alsa_card(device, card):
+    assert alsa_card(device) == card
+
+
+def add_card(sysfs, number, name):
+    (sysfs / f"card{number}").mkdir()
+    (sysfs / f"card{number}" / "id").write_text(name + "\n")
+
+
+def test_card_present_by_name_or_number(tmp_path):
+    add_card(tmp_path, 0, "PCH")
+    assert not card_present("N05XD", tmp_path) and not card_present("1", tmp_path)
+    add_card(tmp_path, 3, "N05XD")  # numbers change when a card reappears
+    assert card_present("N05XD", tmp_path) and card_present("3", tmp_path)
+    assert card_present("PCH", tmp_path) and card_present("0", tmp_path)
 
 
 def test_output_lost_alias():
@@ -61,15 +71,14 @@ def test_playing_follows_play_state_metadata():
 
 
 async def test_output_watcher(tmp_path):
-    card = tmp_path / "N05XD"
-    card.mkdir()
+    add_card(tmp_path, 1, "N05XD")
     changes = []
-    watcher = OutputWatcher(card, changes.append, interval=0.01)
+    watcher = OutputWatcher("N05XD", changes.append, interval=0.01, sysfs=tmp_path)
     watcher.start()
     try:
-        card.rmdir()
+        shutil.rmtree(tmp_path / "card1")
         await wait_for(lambda: changes == [False])
-        card.mkdir()
+        add_card(tmp_path, 2, "N05XD")
         await wait_for(lambda: changes == [False, True])
     finally:
         watcher.close()
