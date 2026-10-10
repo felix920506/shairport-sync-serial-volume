@@ -7,7 +7,7 @@ name = "volume-bridge"
 version = "0.1.0"
 description = "Bridges Shairport Sync (AirPlay) volume to an external amplifier, both ways."
 requires-python = ">=3.11"
-dependencies = ["dbus-fast>=2.21"]
+dependencies = ["dbus-fast>=2.21", "telnetlib3>=2.0"]
 
 [project.optional-dependencies]
 test = ["pytest>=8", "pytest-asyncio>=0.23"]

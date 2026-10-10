@@ -348,7 +348,7 @@ class TcpSerialAmplifier(Amplifier):
     async def open_transport(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         """Open the byte stream to the amplifier. Override for e.g. a local serial port."""
         if self.protocol == "telnet":
-            return await open_telnet(self.host, self.port)  # type: ignore[return-value]
+            return await open_telnet(self.host, self.port)
         return await asyncio.open_connection(self.host, self.port)
 
     async def on_connected(self) -> None:

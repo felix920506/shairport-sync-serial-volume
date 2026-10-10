@@ -133,9 +133,9 @@ The built-in `tcp-serial` backend talks to the amplifier through a serial-to-Eth
 raw mode, or a serial multiplexer. The protocol is described in `config/volume-bridge.toml` (see the commented
 example there): how messages are framed, command templates, and regexes that extract volume and mute. It
 reconnects automatically, can poll, and paces commands. For serial servers in telnet mode instead of raw TCP,
-set `protocol = "telnet"`: the backend then handles telnet's escaping and option negotiation (it asks for
-8-bit binary mode and refuses everything else, including server-side echo and RFC 2217 line control, so set the
-baud rate on the server).
+set `protocol = "telnet"`: the connection then goes through [telnetlib3](https://github.com/jquast/telnetlib3),
+which handles telnet's escaping and option negotiation in 8-bit binary mode. RFC 2217 line control isn't used,
+so set the baud rate on the server.
 
 **Built-in serial multiplexer (optional).** The container includes [ser2net](https://github.com/cminyard/ser2net).
 It's off by default; set `ENABLE_SER2NET: "1"` to turn it on. ser2net holds the single connection to the

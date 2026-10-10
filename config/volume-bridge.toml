@@ -65,8 +65,8 @@ control_port = 7001
 # host = "192.168.1.50"
 # port = 4001
 # # "raw" (default): plain TCP. "telnet": for serial servers in telnet mode
-# # (RFC 854; also RFC 2217 servers, with the line settings left as configured
-# # on the server).
+# # (RFC 854, via telnetlib3; also RFC 2217 servers, with the line settings
+# # left as configured on the server).
 # protocol = "raw"
 #
 # # --- Framing: how messages are separated in the received byte stream ---
