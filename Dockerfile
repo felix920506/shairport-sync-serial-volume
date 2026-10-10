@@ -102,7 +102,7 @@ COPY --from=volume-bridge /opt/volume-bridge /opt/volume-bridge
 COPY config/shairport-sync.conf /etc/shairport-sync.conf
 COPY config/volume-bridge.toml /etc/volume-bridge.toml
 COPY config/ser2net.yaml /etc/ser2net/ser2net.yaml
-COPY --chmod=755 rootfs/usr/local/bin/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chmod=755 rootfs/usr/local/bin/entrypoint.sh rootfs/usr/local/bin/output-device-error /usr/local/bin/
 
 ENV ENABLE_AVAHI=1 \
     ENABLE_NQPTP=1 \

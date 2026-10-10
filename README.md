@@ -27,8 +27,11 @@ and `SPS_NAME`. Host networking and `/dev/snd` are required.
 `docker-compose.yaml` bind-mounts the host's `/dev/snd` (with a cgroup rule for ALSA devices) instead of
 passing `devices: /dev/snd`, which would copy the device nodes once at start. That way a DAC that reappears
 is usable right away. Name the card (`hw:CARD=N05XD`), because its number can change when it reappears.
-If the DAC is missing when playback starts, or disappears during playback, Shairport Sync exits on purpose.
-The container then restarts (`restart: unless-stopped`), and the AirPlay session ends. On a desktop host,
+If the DAC is missing when playback starts (some DACs are off the bus while they start up), Shairport Sync
+keeps retrying, and playback starts once the DAC appears. Without a handler, Shairport Sync would exit and
+end the AirPlay session. `run_this_if_an_unfixable_error_is_detected` in `config/shairport-sync.conf` points
+at a handler that only logs. If the DAC disappears during playback, the output stays silent until playback
+stops. Pause and play again once the DAC is back. On a desktop host,
 also keep PipeWire/PulseAudio off the DAC: if they hold it open, Shairport Sync can't use it.
 
 Shairport Sync picks the deepest sample format the device offers. Some USB DACs advertise a 32-bit mode

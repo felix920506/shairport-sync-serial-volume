@@ -1,0 +1,7 @@
+#!/bin/sh
+# Shairport Sync's run_this_if_an_unfixable_error_is_detected handler. Without
+# one, Shairport Sync exits when the output device is missing (e.g. a USB DAC
+# that is off, switched to another input, or still starting up), which ends
+# the AirPlay session. With one, it keeps going and retries opening the device.
+# Shairport Sync waits for this while holding its ALSA lock: keep it quick.
+echo "[output-device-error] $1: the output device is unavailable; playback starts when it appears" >&2
