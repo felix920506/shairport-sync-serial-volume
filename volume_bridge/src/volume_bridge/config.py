@@ -28,6 +28,9 @@ class Config:
     resume_when_output_back: bool = False
     #: Seconds to wait after the DAC is back (and output_lost hooks are done) before resuming.
     output_resume_delay: float = 2.0
+    #: Drop the AirPlay session if the DAC isn't back this many seconds after a
+    #: recovery attempt (0 = never).
+    output_recovery_timeout: float = 60.0
     bridge: BridgeSettings = field(default_factory=BridgeSettings)
     amplifier_type: str = "stub"
     amplifier_scale: LevelScale = field(default_factory=LevelScale)
@@ -51,7 +54,7 @@ def parse_config(data: dict[str, Any]) -> Config:
     log_level = bridge.pop("log_level", "INFO")
     shairport = _pick(data.get("shairport", {}), ("bus", "service", "metadata_port", "alsa_device",
                                                      "pause_while_output_lost", "resume_when_output_back",
-                                                     "output_resume_delay"),
+                                                     "output_resume_delay", "output_recovery_timeout"),
                       "shairport")
 
     amplifier = dict(data.get("amplifier", {}))
@@ -71,6 +74,7 @@ def parse_config(data: dict[str, Any]) -> Config:
         pause_while_output_lost=bool(shairport.get("pause_while_output_lost", True)),
         resume_when_output_back=bool(shairport.get("resume_when_output_back", False)),
         output_resume_delay=float(shairport.get("output_resume_delay", 2.0)),
+        output_recovery_timeout=float(shairport.get("output_recovery_timeout", 60.0)),
         bridge=BridgeSettings(**_pick(
             bridge, ("source_echo_window", "amplifier_echo_window", "max_echo_window", "use_amplifier_mute"), "bridge")),
         amplifier_type=amp_type,

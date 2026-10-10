@@ -35,6 +35,10 @@ metadata_port = 5555
 # resumed: not if the source disconnected or played again on its own meanwhile.
 # resume_when_output_back = false
 # output_resume_delay = 2.0
+# If the DAC still isn't back this many seconds after a recovery attempt (the
+# on_output_lost actions, or on_connect while it was missing), something has
+# gone wrong (e.g. it was unplugged): drop the AirPlay session. 0 = never.
+# output_recovery_timeout = 60
 
 [amplifier]
 # "stub", "tcp-serial", or "your.module:YourAmplifierClass"

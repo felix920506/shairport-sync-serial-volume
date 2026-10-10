@@ -66,6 +66,7 @@ class ShairportSync:
         self.on_playing: Callable[[bool], None] = lambda playing: None
         self._bus: MessageBus | None = None
         self._remote: ProxyInterface | None = None
+        self._main: ProxyInterface | None = None
         self._volume: float | None = None
         # Until a source sets a volume, Shairport Sync reports its startup
         # default (0 dB = full scale), which must never reach the amplifier.
@@ -131,7 +132,7 @@ class ShairportSync:
 
         proxy = self._bus.get_proxy_object(self.service, PATH, introspection)
         self._remote = proxy.get_interface(REMOTE_INTERFACE)
-        main = proxy.get_interface(MAIN_INTERFACE)
+        main = self._main = proxy.get_interface(MAIN_INTERFACE)
         proxy.get_interface("org.freedesktop.DBus.Properties").on_properties_changed(
             self._properties_changed
         )
@@ -212,6 +213,12 @@ class ShairportSync:
         if self._remote is None:
             raise ConnectionError("not connected to Shairport Sync")
         await self._remote.call_play()
+
+    async def drop_session(self) -> None:
+        """End the current AirPlay session (the source is disconnected)."""
+        if self._main is None:
+            raise ConnectionError("not connected to Shairport Sync")
+        await self._main.call_drop_session()
 
     async def set_volume(self, volume: float) -> None:
         if self._remote is None:

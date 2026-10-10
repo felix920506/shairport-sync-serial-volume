@@ -87,10 +87,16 @@ class OutputRecovery:
     started playing again on its own, in the meantime. Before resuming it waits
     for the output_lost and connect hooks to finish (an amplifier warming up) and then
     ``resume_delay`` seconds, so the DAC has settled.
+
+    With ``give_up_after`` (seconds, 0 = never), if the DAC still isn't back that
+    long after a recovery attempt, the AirPlay session is dropped: something has
+    gone wrong (e.g. the DAC was unplugged), and the source shouldn't sit there
+    paused or playing into nothing.
     """
 
     def __init__(self, card: str, source: Any, hooks: Any, pause: bool = False,
-                 resume: bool = False, resume_delay: float = 2.0, pause_check: float = 1.5) -> None:
+                 resume: bool = False, resume_delay: float = 2.0, pause_check: float = 1.5,
+                 give_up_after: float = 0.0) -> None:
         self.card = card
         self.source = source
         self.hooks = hooks
@@ -99,6 +105,8 @@ class OutputRecovery:
         self.resume_delay = resume_delay
         #: Seconds to wait for the source to report that it paused before asking again.
         self.pause_check = pause_check
+        self.give_up_after = give_up_after
+        self._give_up_task: asyncio.Task | None = None
         #: The sources connected when we paused; None when we haven't paused.
         self._paused: frozenset[str] | None = None
         #: Resume what we paused once the DAC is back, even without ``resume``
@@ -116,6 +124,7 @@ class OutputRecovery:
         self.present = present
         if present:
             self._attempted = False
+            self._cancel_give_up()
             log.info("output device %s is back", self.card)
             if self._paused is not None:
                 self._back_while_paused()
@@ -161,12 +170,36 @@ class OutputRecovery:
             # are this absence's recovery attempt.
             if not self.present and self.hooks.hooks.get("connect"):
                 self._attempted = True
+                self._start_give_up()
         else:
             self._attempted = False  # the next session gets a fresh attempt
+            self._cancel_give_up()
 
     def _fire(self) -> None:
         self._attempted = True
         self.hooks.fire("output_lost")
+        self._start_give_up()
+
+    def _start_give_up(self) -> None:
+        if self.give_up_after > 0 and (self._give_up_task is None or self._give_up_task.done()):
+            self._give_up_task = asyncio.create_task(self._give_up(), name="output-give-up")
+
+    def _cancel_give_up(self) -> None:
+        if self._give_up_task is not None:
+            self._give_up_task.cancel()
+            self._give_up_task = None
+
+    async def _give_up(self) -> None:
+        await asyncio.sleep(self.give_up_after)
+        if self.present or not self.source.clients:
+            return
+        log.warning("output device %s still isn't back %gs after the recovery attempt: "
+                    "dropping the AirPlay session", self.card, self.give_up_after)
+        self._paused = None
+        try:
+            await self.source.drop_session()
+        except Exception as e:
+            log.warning("couldn't drop the AirPlay session: %s", e)
 
     def _start(self, coro: Any) -> None:
         if self._task is not None:
@@ -237,3 +270,4 @@ class OutputRecovery:
     def close(self) -> None:
         if self._task is not None:
             self._task.cancel()
+        self._cancel_give_up()

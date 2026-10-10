@@ -41,7 +41,8 @@ async def run(config_path: str) -> int:
     watcher = None
     if "output_lost" in config.hooks or config.pause_while_output_lost:
         watcher = create_output_watcher(config.alsa_device, source, hooks, config.pause_while_output_lost,
-                                        config.resume_when_output_back, config.output_resume_delay)
+                                        config.resume_when_output_back, config.output_resume_delay,
+                                        config.output_recovery_timeout)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -76,7 +77,8 @@ async def run(config_path: str) -> int:
 
 
 def create_output_watcher(device: str, source: ShairportSync, hooks: HookRunner, pause: bool = False,
-                          resume: bool = False, resume_delay: float = 2.0) -> OutputWatcher | None:
+                          resume: bool = False, resume_delay: float = 2.0,
+                          give_up_after: float = 0.0) -> OutputWatcher | None:
     """Handle the DAC disappearing while audio is playing (see OutputRecovery)."""
     card = alsa_card(device)
     if card is None:
@@ -85,7 +87,8 @@ def create_output_watcher(device: str, source: ShairportSync, hooks: HookRunner,
                 "on_output_lost / pause_while_output_lost are disabled: no ALSA card in the output "
                 "device %r (set ALSA_DEVICE or [shairport] alsa_device, e.g. \"hw:CARD=N05XD\")", device)
         return None
-    recovery = OutputRecovery(card, source, hooks, pause=pause, resume=resume, resume_delay=resume_delay)
+    recovery = OutputRecovery(card, source, hooks, pause=pause, resume=resume, resume_delay=resume_delay,
+                              give_up_after=give_up_after)
     source.on_playing = recovery.on_playing
     watcher = OutputWatcher(card, recovery.on_output_change)
     watcher.recovery = recovery

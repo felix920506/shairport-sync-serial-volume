@@ -288,7 +288,10 @@ and asks again (up to 3 times). If it never gets a confirmation, it assumes the 
 resumes it. The bridge resumes once the DAC is back, the `on_output_lost` and
 `on_connect` actions have finished (e.g. an amp warming up) and `output_resume_delay` seconds (default 2) have passed. It
 resumes only what it paused: not if the source disconnected, or was played again by hand, in the meantime. If
-the DAC drops again before then, the source stays paused. Pausing and resuming use AirPlay remote control,
+the DAC drops again before then, the source stays paused. If the DAC still isn't back `output_recovery_timeout` seconds (default 60, 0 = never) after a recovery
+attempt (the `on_output_lost` actions, or `on_connect` while the DAC was missing), something has likely gone
+wrong, e.g. the DAC was unplugged. The bridge then drops the AirPlay session (Shairport Sync's `DropSession`),
+so the phone isn't left paused or playing into nothing. Pausing and resuming use AirPlay remote control,
 which Shairport Sync marks as experimental. Some apps (live radio) resume at the live point rather than where
 they paused.
 

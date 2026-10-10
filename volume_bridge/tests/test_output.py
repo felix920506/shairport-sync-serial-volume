@@ -137,6 +137,10 @@ class PausableSource:
         self.commands.append("play")
         self.playing = True
 
+    async def drop_session(self):
+        self.commands.append("drop")
+        self.clients = frozenset()
+
 
 async def make_recovery(hooks=None, **kwargs):
     _, amp, _, runner = await make(hooks or {})
@@ -339,3 +343,39 @@ async def test_unconfirmed_pause_is_still_resumed():
     await wait_for(lambda: source.commands == ["pause"] * 3)
     recovery.on_output_change(True)
     await wait_for(lambda: source.commands == ["pause"] * 3 + ["play"])
+
+
+async def test_session_dropped_if_the_dac_does_not_come_back():
+    source, _, _, recovery = await make_recovery({"on_output_lost": [{"send": "PWR 1"}]}, give_up_after=0.1)
+    recovery.on_output_change(False)  # unplugged while playing
+    await wait_for(lambda: source.commands == ["pause", "drop"])
+
+
+async def test_session_not_dropped_if_the_dac_comes_back():
+    source, _, _, recovery = await make_recovery({"on_output_lost": [{"send": "PWR 1"}]}, give_up_after=0.1)
+    recovery.on_output_change(False)
+    await wait_for(lambda: source.commands == ["pause"])
+    recovery.on_output_change(True)
+    await asyncio.sleep(0.2)
+    assert "drop" not in source.commands
+
+
+async def test_session_dropped_if_the_dac_is_missing_after_connecting():
+    source, _, hooks, recovery = await make_recovery({"on_connect": [{"send": "PWR 1"}]}, give_up_after=0.1)
+    recovery.present = False
+    source.playing = False
+    recovery.on_connection(True)  # the on_connect power-up is the attempt
+    await wait_for(lambda: source.commands == ["drop"])
+
+    source, _, hooks, recovery = await make_recovery({"on_connect": [{"send": "PWR 1"}]}, give_up_after=0.1)
+    recovery.present = False
+    source.playing = False
+    recovery.on_connection(True)
+    recovery.on_connection(False)  # left before the timeout
+    await asyncio.sleep(0.2)
+    assert source.commands == []
+
+
+def test_recovery_timeout_in_config():
+    assert parse_config({}).output_recovery_timeout == 60.0
+    assert parse_config({"shairport": {"output_recovery_timeout": 0}}).output_recovery_timeout == 0.0
