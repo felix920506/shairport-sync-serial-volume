@@ -71,7 +71,8 @@ class OutputWatcher:
 class OutputRecovery:
     """What to do when the DAC disappears while audio is playing: fire the
     output_lost hooks (e.g. power it up again) and, with ``pause``, pause the
-    source until the DAC is back, so nothing is skipped meanwhile.
+    source, so nothing is skipped meanwhile. With ``resume`` too, it resumes the
+    source once the DAC is back.
 
     It resumes only what it paused: not if the source has disconnected, or
     started playing again on its own, in the meantime. Before resuming it waits
@@ -80,11 +81,12 @@ class OutputRecovery:
     """
 
     def __init__(self, card: str, source: Any, hooks: Any, pause: bool = False,
-                 resume_delay: float = 2.0) -> None:
+                 resume: bool = False, resume_delay: float = 2.0) -> None:
         self.card = card
         self.source = source
         self.hooks = hooks
         self.pause = pause
+        self.resume = resume
         self.resume_delay = resume_delay
         #: The sources connected when we paused; None when we haven't paused.
         self._paused: frozenset[str] | None = None
@@ -97,8 +99,7 @@ class OutputRecovery:
         if present:
             log.info("output device %s is back", self.card)
             if self._paused is not None:
-                self._resuming = True
-                self._start(self._resume())
+                self._back_while_paused()
             return
         if self._resuming:
             self._task.cancel()  # gone again before we resumed: stay paused
@@ -134,10 +135,19 @@ class OutputRecovery:
             log.warning("couldn't pause the source: %s", e)
             return
         self._paused = clients
-        log.info("paused the source until output device %s is back", self.card)
+        log.info("paused the source while output device %s is gone", self.card)
         if self.present:  # it came back while we were pausing
-            self._resuming = True
-            self._task = asyncio.create_task(self._resume(), name="output-recovery")
+            self._back_while_paused()
+
+    def _back_while_paused(self) -> None:
+        if not self.resume:
+            log.info("output device %s is back; the source stays paused "
+                     "(resume_when_output_back is off)", self.card)
+            self._paused = None
+            return
+        # Only ever scheduled once the pause has finished: no task to cancel.
+        self._resuming = True
+        self._task = asyncio.create_task(self._resume(), name="output-recovery")
 
     async def _resume(self) -> None:
         try:

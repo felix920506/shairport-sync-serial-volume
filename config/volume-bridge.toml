@@ -27,11 +27,13 @@ metadata_port = 5555
 # The ALSA device Shairport Sync plays to, watched for on_output_lost. Default:
 # the container's ALSA_DEVICE.
 # alsa_device = "hw:CARD=N05XD"
-# Pause the source while that DAC is gone during playback (nothing is skipped),
-# and resume it once the DAC is back, the on_output_lost hooks have finished
-# and output_resume_delay seconds have passed. Only what the bridge paused is
+# Pause the source when that DAC disappears during playback, so nothing is
+# skipped while it's gone.
+# pause_while_output_lost = true
+# Resume it once the DAC is back, the on_output_lost hooks have finished and
+# output_resume_delay seconds have passed. Only what the bridge paused is
 # resumed: not if the source disconnected or played again on its own meanwhile.
-# pause_while_output_lost = false
+# resume_when_output_back = false
 # output_resume_delay = 2.0
 
 [amplifier]

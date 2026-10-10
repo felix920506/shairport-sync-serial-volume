@@ -110,8 +110,9 @@ async def test_output_lost_is_not_queued_twice():
     assert amp.received_commands == [("PWR 1", False)] * 2
 
 
-def test_no_watcher_without_a_card(caplog):
-    assert create_output_watcher("default", None, None) is None
+async def test_no_watcher_without_a_card(caplog):
+    _, _, _, hooks = await make({"on_output_lost": [{"send": "PWR 1"}]})
+    assert create_output_watcher("default", None, hooks) is None
     assert "on_output_lost / pause_while_output_lost are disabled" in caplog.text
 
 
@@ -135,6 +136,7 @@ class PausableSource:
 async def make_recovery(hooks=None, **kwargs):
     _, amp, _, runner = await make(hooks or {})
     source = PausableSource()
+    kwargs = {"resume": True, **kwargs}
     return source, amp, runner, OutputRecovery("N05XD", source, runner, pause=True, resume_delay=0.01, **kwargs)
 
 
@@ -206,6 +208,19 @@ async def test_not_playing_does_nothing():
     assert source.commands == []
 
 
+async def test_pause_without_resume():
+    source, _, _, recovery = await make_recovery(resume=False)
+    recovery.on_output_change(False)
+    await wait_for(lambda: source.commands == ["pause"])
+    recovery.on_output_change(True)
+    await asyncio.sleep(0.1)
+    assert source.commands == ["pause"]
+
+
 def test_pause_options_in_config():
-    config = parse_config({"shairport": {"pause_while_output_lost": True, "output_resume_delay": 5}})
-    assert config.pause_while_output_lost and config.output_resume_delay == 5.0
+    config = parse_config({})
+    assert config.pause_while_output_lost and not config.resume_when_output_back
+    config = parse_config({"shairport": {"pause_while_output_lost": False, "resume_when_output_back": True,
+                                         "output_resume_delay": 5}})
+    assert not config.pause_while_output_lost and config.resume_when_output_back
+    assert config.output_resume_delay == 5.0

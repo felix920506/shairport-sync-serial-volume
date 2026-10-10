@@ -22,8 +22,10 @@ class Config:
     shairport_metadata_port: int = 5555
     #: ALSA device Shairport Sync plays to, for on_output_lost (default: $ALSA_DEVICE).
     alsa_device: str = ""
-    #: Pause the source while the DAC is gone during playback, resume when it's back.
-    pause_while_output_lost: bool = False
+    #: Pause the source when the DAC disappears during playback.
+    pause_while_output_lost: bool = True
+    #: Resume what pause_while_output_lost paused once the DAC is back.
+    resume_when_output_back: bool = False
     #: Seconds to wait after the DAC is back (and output_lost hooks are done) before resuming.
     output_resume_delay: float = 2.0
     bridge: BridgeSettings = field(default_factory=BridgeSettings)
@@ -48,7 +50,8 @@ def parse_config(data: dict[str, Any]) -> Config:
     bridge = dict(data.get("bridge", {}))
     log_level = bridge.pop("log_level", "INFO")
     shairport = _pick(data.get("shairport", {}), ("bus", "service", "metadata_port", "alsa_device",
-                                                     "pause_while_output_lost", "output_resume_delay"),
+                                                     "pause_while_output_lost", "resume_when_output_back",
+                                                     "output_resume_delay"),
                       "shairport")
 
     amplifier = dict(data.get("amplifier", {}))
@@ -65,7 +68,8 @@ def parse_config(data: dict[str, Any]) -> Config:
         shairport_service=shairport.get("service", "org.gnome.ShairportSync"),
         shairport_metadata_port=int(shairport.get("metadata_port", 5555)),
         alsa_device=str(shairport.get("alsa_device", os.environ.get("ALSA_DEVICE", ""))),
-        pause_while_output_lost=bool(shairport.get("pause_while_output_lost", False)),
+        pause_while_output_lost=bool(shairport.get("pause_while_output_lost", True)),
+        resume_when_output_back=bool(shairport.get("resume_when_output_back", False)),
         output_resume_delay=float(shairport.get("output_resume_delay", 2.0)),
         bridge=BridgeSettings(**_pick(
             bridge, ("source_echo_window", "amplifier_echo_window", "max_echo_window", "use_amplifier_mute"), "bridge")),
