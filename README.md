@@ -273,6 +273,14 @@ aren't queued again. Shairport Sync reopens the DAC once it's back, so sound ret
 (see "USB DACs that come and go"). The shell actions get `VOLUME_BRIDGE_EVENT=output_lost`, so a Home
 Assistant automation can tell this apart from a connect.
 
+Without a pause, the music that plays while the DAC is gone is skipped, because playback keeps following the
+source's clock. Set `pause_while_output_lost = true` under `[shairport]` to pause the source (the phone)
+during the dropout instead. The bridge resumes it once the DAC is back, the `on_output_lost` actions have
+finished (e.g. an amp warming up) and `output_resume_delay` seconds (default 2) have passed. It resumes only
+what it paused: not if the source disconnected, or was played again by hand, in the meantime. If the DAC drops
+again before then, the source stays paused. This uses AirPlay remote control, which Shairport Sync marks as
+experimental. Some apps (live radio) resume at the live point rather than where they paused.
+
 Each event runs its actions in order, or several at once with `parallel`. If an action fails, the bridge logs
 it and runs the next one. Events are handled one at a time, so a disconnect's actions never overtake the
 connect's.

@@ -62,6 +62,8 @@ class ShairportSync:
         #: Called with (connected, client address) when the first source
         #: connects or the last one disconnects (needs metadata).
         self.on_connection: Callable[[bool, str], None] = lambda connected, client: None
+        #: Called when audio starts or stops playing (see ``playing``).
+        self.on_playing: Callable[[bool], None] = lambda playing: None
         self._bus: MessageBus | None = None
         self._remote: ProxyInterface | None = None
         self._volume: float | None = None
@@ -168,10 +170,7 @@ class ShairportSync:
         # "prsm" on resume; "pbeg"/"pend" start/end a stream. "pfls" (flush) is
         # left out: AirPlay 2 also flushes on a skip and then just keeps playing.
         if code in _PLAYING or code in _NOT_PLAYING:
-            playing = code in _PLAYING
-            if playing != self._playing:
-                self._playing = playing
-                log.debug("playing: %s", playing)
+            self._set_playing(code in _PLAYING)
             return
         if code not in (b"conn", b"disc"):
             return
@@ -185,9 +184,31 @@ class ShairportSync:
             log.info("source %s disconnected", client)
         self._connections += collections.Counter()  # drop zero counts
         if not self._connections:
-            self._playing = False
+            self._set_playing(False)
         if bool(self._connections) != was_connected:
             self.on_connection(not was_connected, client)
+
+    def _set_playing(self, playing: bool) -> None:
+        if playing != self._playing:
+            self._playing = playing
+            log.debug("playing: %s", playing)
+            self.on_playing(playing)
+
+    @property
+    def clients(self) -> frozenset[str]:
+        """Addresses of the connected sources (needs metadata)."""
+        return frozenset(self._connections or ())
+
+    async def pause(self) -> None:
+        """Ask the source to pause (AirPlay 2: a media remote command)."""
+        if self._remote is None:
+            raise ConnectionError("not connected to Shairport Sync")
+        await self._remote.call_pause()
+
+    async def play(self) -> None:
+        if self._remote is None:
+            raise ConnectionError("not connected to Shairport Sync")
+        await self._remote.call_play()
 
     async def set_volume(self, volume: float) -> None:
         if self._remote is None:

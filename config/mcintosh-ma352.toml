@@ -121,6 +121,8 @@ ignore_patterns = []
 # If the DAC drops out during playback (standby, another input), run the same
 # power-up procedure again:
 # on_output_lost = "on_connect"
+# (Set pause_while_output_lost = true under [shairport] to also pause the source
+# until the DAC is back.)
 # on_disconnect = [
 #   { parallel = [
 #     { send = "PWR 0" },

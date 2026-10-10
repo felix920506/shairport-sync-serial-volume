@@ -10,7 +10,7 @@ from .amplifiers import create_amplifier
 from .bridge import VolumeBridge
 from .config import load_config
 from .hooks import HookRunner
-from .output import OutputWatcher, alsa_card
+from .output import OutputRecovery, OutputWatcher, alsa_card
 from .shairport import ShairportSync
 
 log = logging.getLogger("volume_bridge")
@@ -36,7 +36,10 @@ async def run(config_path: str) -> int:
 
     source.on_active = on_active
     source.on_connection = on_connection
-    watcher = create_output_watcher(config.alsa_device, source, hooks) if "output_lost" in config.hooks else None
+    watcher = None
+    if "output_lost" in config.hooks or config.pause_while_output_lost:
+        watcher = create_output_watcher(config.alsa_device, source, hooks, config.pause_while_output_lost,
+                                        config.output_resume_delay)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -63,32 +66,27 @@ async def run(config_path: str) -> int:
     finally:
         if watcher is not None:
             watcher.close()
+            watcher.recovery.close()
         hooks.close()
         bridge.close()
         source.close()
         await amplifier.stop()
 
 
-def create_output_watcher(device: str, source: ShairportSync, hooks: HookRunner) -> OutputWatcher | None:
-    """Fire output_lost when the DAC disappears while audio is playing."""
+def create_output_watcher(device: str, source: ShairportSync, hooks: HookRunner, pause: bool = False,
+                          resume_delay: float = 2.0) -> OutputWatcher | None:
+    """Handle the DAC disappearing while audio is playing (see OutputRecovery)."""
     card = alsa_card(device)
     if card is None:
-        log.warning("on_output_lost is disabled: no ALSA card in the output device %r "
-                    "(set ALSA_DEVICE or [shairport] alsa_device, e.g. \"hw:CARD=N05XD\")", device)
+        log.warning("on_output_lost / pause_while_output_lost are disabled: no ALSA card in the output "
+                    "device %r (set ALSA_DEVICE or [shairport] alsa_device, e.g. \"hw:CARD=N05XD\")", device)
         return None
-
-    def on_change(present: bool) -> None:
-        if present:
-            log.info("output device %s is back", card)
-        elif not source.playing:
-            log.info("output device %s is gone (not playing: no action)", card)
-        elif hooks.pending("output_lost"):
-            log.info("output device %s is gone again (output_lost hooks still running)", card)
-        else:
-            log.info("output device %s is gone while playing", card)
-            hooks.fire("output_lost")
-
-    return OutputWatcher(card, on_change)
+    recovery = OutputRecovery(card, source, hooks, pause=pause, resume_delay=resume_delay)
+    source.on_playing = recovery.on_playing
+    watcher = OutputWatcher(card, recovery.on_output_change)
+    watcher.recovery = recovery
+    recovery.present = watcher.present
+    return watcher
 
 
 def main() -> None:
