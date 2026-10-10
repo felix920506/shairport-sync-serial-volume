@@ -28,6 +28,9 @@ binary protocols.
 
   Connection
     host, port            serial server address (required)
+    protocol              "raw" (default): the TCP stream is the serial data;
+                          "telnet": the server wraps it in telnet (RFC 854),
+                          as serial servers in "telnet mode" do (see .telnet)
     connect_timeout       seconds (default 5)
     reconnect_max_delay   cap for exponential reconnect backoff (default 30)
 
@@ -86,6 +89,7 @@ from typing import Any, Mapping
 
 from .base import Amplifier, AmplifierState
 from .framing import Frame, Framer, create_framer
+from .telnet import open_telnet
 
 log = logging.getLogger(__name__)
 
@@ -105,6 +109,9 @@ class TcpSerialAmplifier(Amplifier):
             self.port: int = int(o["port"])
         except KeyError as e:
             raise ValueError(f"tcp-serial amplifier requires option {e.args[0]!r}") from None
+        self.protocol: str = o.get("protocol", "raw")
+        if self.protocol not in ("raw", "telnet"):
+            raise ValueError("protocol must be 'raw' or 'telnet'")
         self.encoding: str = o.get("encoding", "ascii")
 
         self.level_pattern = re.compile(o["level_pattern"]) if o.get("level_pattern") else None
@@ -340,6 +347,8 @@ class TcpSerialAmplifier(Amplifier):
 
     async def open_transport(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         """Open the byte stream to the amplifier. Override for e.g. a local serial port."""
+        if self.protocol == "telnet":
+            return await open_telnet(self.host, self.port)  # type: ignore[return-value]
         return await asyncio.open_connection(self.host, self.port)
 
     async def on_connected(self) -> None:

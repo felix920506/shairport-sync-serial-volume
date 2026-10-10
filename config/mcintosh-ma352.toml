@@ -8,7 +8,7 @@
 # ring = RXD into the amp, sleeve = ground). Configure the serial server /
 # ser2net port as 115200 baud (the amp's default; 9600..57600 are selectable
 # in its setup menu), 8 data bits, no parity, 1 stop bit, no flow control,
-# raw TCP mode.
+# raw TCP mode (or telnet mode with protocol = "telnet" below).
 #
 # Protocol summary: every message is ASCII wrapped in parentheses, e.g.
 # "(VOL 65)", optionally followed by CR LF. The amp echoes each command it
@@ -50,6 +50,7 @@ exponent = 1.0
 [amplifier.options]
 host = "192.168.1.50"         # serial server / ser2net address
 port = 4001                   # its TCP port for the MA352's RS232 line
+protocol = "raw"              # "telnet" if the serial server is in telnet mode
 
 # "(...)" framing. Anything outside the parentheses (the optional CR LF) is skipped.
 framing = "markers"

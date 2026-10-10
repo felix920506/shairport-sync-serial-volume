@@ -23,6 +23,8 @@ connection: &amp
   connector: serialdev,/dev/amp-serial,115200n81,local
   # Or a network serial server that accepts only one client (raw TCP):
   # connector: tcp,192.168.1.50,4001
+  # or one in telnet mode:
+  # connector: telnet,tcp,192.168.1.50,4001
 
   options:
     # How many clients may share the port at once. Beyond that, new clients

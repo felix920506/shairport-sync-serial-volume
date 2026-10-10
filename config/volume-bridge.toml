@@ -64,6 +64,10 @@ control_port = 7001
 # [amplifier.options]
 # host = "192.168.1.50"
 # port = 4001
+# # "raw" (default): plain TCP. "telnet": for serial servers in telnet mode
+# # (RFC 854; also RFC 2217 servers, with the line settings left as configured
+# # on the server).
+# protocol = "raw"
 #
 # # --- Framing: how messages are separated in the received byte stream ---
 # # "delimited": messages end in any of receive_terminators (CR/LF lines, ";" ...)
