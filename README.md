@@ -33,8 +33,36 @@ from a patch (`patches/shairport-sync/`): upstream fails at once and then crashe
 still isn't there, Shairport Sync exits, the container restarts and the AirPlay session ends. If the DAC
 disappears during playback, Shairport Sync doesn't exit: `run_this_if_an_unfixable_error_is_detected` in
 `config/shairport-sync.conf` points at a handler that only logs, and a second patch closes the dead device so
-it's reopened as soon as the DAC is back. Sound returns without reconnecting. On a desktop host,
-also keep PipeWire/PulseAudio off the DAC: if they hold it open, Shairport Sync can't use it.
+it's reopened as soon as the DAC is back. Sound returns without reconnecting.
+
+**Desktop hosts: PipeWire and PulseAudio.** On a host that runs a desktop sound server, PipeWire or
+PulseAudio may also use the DAC as an output (a sink). Only one program can open an ALSA `hw:` device at a
+time, so whenever the sound server holds it, Shairport Sync can't use it, and weird things can happen. This is
+most likely right after a USB DAC reappears, when the sound server picks up the "new" device. Symptoms:
+
+- The source shows as playing, but there's no sound, and pausing and playing again doesn't help. Only
+  disconnecting and reconnecting does.
+- The DAC shows a different sample rate from the stream: for example 44.1 kHz, while Shairport Sync's statistics
+  (`SHAIRPORT_STATISTICS`) say the output is 48 kHz. That's the sound server's own stream, often silence.
+- Shairport Sync logs `The output device "…" is busy and can't be used by Shairport Sync at present.`
+
+A headless host without a sound server isn't affected. On a desktop host, you can tell the sound server to
+leave the DAC alone. The DAC then no longer appears as an output on that desktop, so whether to do it is your
+call. Find the device's name with `wpctl status` and `pw-cli info <device id>` (`device.name`). Then, for
+PipeWire with WirePlumber 0.5, create e.g. `~/.config/wireplumber/wireplumber.conf.d/51-disable-dac.conf`:
+
+```
+monitor.alsa.rules = [
+  {
+    matches = [ { device.name = "alsa_card.usb-TEAC_Corporation_ESOTERIC_N-05XD-00" } ]
+    actions = { update-props = { device.disabled = true } }
+  }
+]
+```
+
+and restart it with `systemctl --user restart wireplumber`. (WirePlumber 0.4 uses Lua rules in
+`~/.config/wireplumber/main.lua.d/` instead.) For PulseAudio, a udev rule that sets
+`ENV{PULSE_IGNORE}="1"` on the DAC's sound card makes PulseAudio skip it.
 
 Shairport Sync picks the deepest sample format the device offers. Some USB DACs advertise a 32-bit mode
 that doesn't actually work: the DAC sees no signal. `cat /proc/asound/cardN/stream0` lists the formats;
