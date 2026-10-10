@@ -81,16 +81,19 @@ Container logs show each direction (`airplay volume -12.00 -> amplifier`,
 | `output_device = "hw:…"` | Use `hw:`, not `plughw:`/`default`, so ALSA's plug layer can't convert behind your back. |
 | `mixdown = "off"` | Multichannel streams are not folded to stereo. |
 | not built with soxr/convolution/loudness | No resampling or DSP code is present. |
-| `interpolation = "basic"` | See below. |
+| `interpolation = "vernier"` | See below. |
 
 Decoding is the only transformation: AirPlay 2 delivers ALAC (lossless) or AAC (in some
 modes, e.g. buffered audio from Apple Music), decoded with FFmpeg to PCM.
 
 **Sync correction.** Multi-room playback needs this device's DAC clock to follow the AirPlay timeline.
-Shairport Sync corrects drift by occasionally adding or dropping a frame. `basic` does exactly that
-and leaves all other samples unchanged. The alternatives (`vernier`, `soxr`) resample whole packets.
-If you don't need tight sync, set `disable_synchronization = "yes"` in the `alsa` section; nothing
-is ever inserted or dropped then.
+Shairport Sync corrects drift by adding or dropping frames. `vernier` recodes each packet it corrects
+to slightly more or fewer frames, smoothly; other packets are unchanged. `basic` would leave every
+sample untouched but cut or double single frames, which crackles audibly, especially while a session's
+timing settles: Shairport Sync's statistics showed up to ~1500 PPM of correction, about 570 frames in
+8 seconds. If you don't need tight sync (lip-sync with video, multi-room groups), set
+`disable_synchronization = "yes"` in the `alsa` section; nothing is ever inserted or dropped then, and
+the stream stays bit-perfect.
 
 ## Volume bridge
 
