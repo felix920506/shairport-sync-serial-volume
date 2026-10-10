@@ -263,13 +263,16 @@ The `[hooks]` section runs actions when something happens:
 | `on_disconnect` | The last source disconnects |
 | `on_session_start` | Playback starts (Shairport Sync's "active" state) |
 | `on_session_end` | `active_state_timeout` after playback stops |
-| `on_output_lost` | The DAC disappears from the system while audio is playing (not paused) |
+| `on_output_lost` | The DAC disappears while audio is playing (not paused), or playback starts while it's missing |
 
 Instead of a list of actions, an event can name another event to run the same actions. For example,
 `on_output_lost = "on_connect"` runs the power-up procedure again when the DAC drops out during playback.
 The bridge checks every 0.5 s whether the ALSA card in `ALSA_DEVICE` (e.g. `hw:CARD=N05XD`) is listed under
-`/sys/class/sound` (Docker hides `/proc/asound` inside containers). It runs the actions once per dropout. If the DAC flickers while they're still running, they
-aren't queued again. Shairport Sync reopens the DAC once it's back, so sound returns without reconnecting
+`/sys/class/sound` (Docker hides `/proc/asound` inside containers). If the DAC drops out while nothing is
+playing, the actions run when playback starts. There's one attempt per absence: once the actions have run,
+or `on_connect` ran while the DAC was missing, pressing play again doesn't rerun them until the DAC has come
+back or the last source has disconnected. If the DAC flickers while they're still running, they aren't
+queued again. Shairport Sync reopens the DAC once it's back, so sound returns without reconnecting
 (see "USB DACs that come and go"). The shell actions get `VOLUME_BRIDGE_EVENT=output_lost`, so a Home
 Assistant automation can tell this apart from a connect.
 

@@ -69,10 +69,16 @@ class OutputWatcher:
 
 
 class OutputRecovery:
-    """What to do when the DAC disappears while audio is playing: fire the
+    """What to do when the DAC is missing while audio is playing: fire the
     output_lost hooks (e.g. power it up again) and, with ``pause``, pause the
     source, so nothing is skipped meanwhile. With ``resume`` too, it resumes the
     source once the DAC is back.
+
+    "Missing while playing" is either the DAC disappearing during playback, or
+    playback starting while it's gone. One recovery attempt is made per absence:
+    once the hooks have run (or on_connect hooks ran while the DAC was missing),
+    starting playback again doesn't rerun them until the DAC has come back or
+    the last source has disconnected.
 
     It resumes only what it paused: not if the source has disconnected, or
     started playing again on its own, in the meantime. Before resuming it waits
@@ -91,12 +97,15 @@ class OutputRecovery:
         #: The sources connected when we paused; None when we haven't paused.
         self._paused: frozenset[str] | None = None
         self._resuming = False
+        #: A recovery attempt was made for the current absence of the DAC.
+        self._attempted = False
         self.present = True
         self._task: asyncio.Task | None = None
 
     def on_output_change(self, present: bool) -> None:
         self.present = present
         if present:
+            self._attempted = False
             log.info("output device %s is back", self.card)
             if self._paused is not None:
                 self._back_while_paused()
@@ -107,20 +116,45 @@ class OutputRecovery:
             log.info("output device %s is gone again: not resuming yet", self.card)
             return
         if not self.source.playing:
-            log.info("output device %s is gone (not playing: no action)", self.card)
+            log.info("output device %s is gone (not playing: recovery when playback starts)", self.card)
             return
         if self.hooks.pending("output_lost"):
             log.info("output device %s is gone again (output_lost hooks still running)", self.card)
         else:
             log.info("output device %s is gone while playing", self.card)
-            self.hooks.fire("output_lost")
+            self._fire()
         if self.pause:
             self._start(self._pause())
 
     def on_playing(self, playing: bool) -> None:
-        if playing and self._paused is not None and not self._resuming:
+        if not playing:
+            return
+        if self._paused is not None and not self._resuming:
             log.info("source resumed on its own: not resuming it when the output device is back")
             self._paused = None
+        if self.present:
+            return
+        if self._attempted or self.hooks.pending("output_lost"):
+            log.info("playback started while output device %s is missing; still waiting for it "
+                     "after the last recovery attempt", self.card)
+            return
+        log.info("playback started while output device %s is missing", self.card)
+        self._fire()
+        if self.pause:
+            self._start(self._pause())
+
+    def on_connection(self, connected: bool) -> None:
+        if connected:
+            # on_connect hooks (e.g. a power-up) running while the DAC is missing
+            # are this absence's recovery attempt.
+            if not self.present and self.hooks.hooks.get("connect"):
+                self._attempted = True
+        else:
+            self._attempted = False  # the next session gets a fresh attempt
+
+    def _fire(self) -> None:
+        self._attempted = True
+        self.hooks.fire("output_lost")
 
     def _start(self, coro: Any) -> None:
         if self._task is not None:

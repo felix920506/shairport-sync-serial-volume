@@ -32,6 +32,8 @@ async def run(config_path: str) -> int:
         hooks.fire("session_start" if active else "session_end")
 
     def on_connection(connected: bool, client: str) -> None:
+        if watcher is not None:
+            watcher.recovery.on_connection(connected)
         hooks.fire("connect" if connected else "disconnect", client)
 
     source.on_active = on_active

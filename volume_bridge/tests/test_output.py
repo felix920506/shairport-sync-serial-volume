@@ -224,3 +224,55 @@ def test_pause_options_in_config():
                                          "output_resume_delay": 5}})
     assert not config.pause_while_output_lost and config.resume_when_output_back
     assert config.output_resume_delay == 5.0
+
+
+async def test_recovery_when_playback_starts_with_the_dac_missing():
+    source, amp, hooks, recovery = await make_recovery({"on_output_lost": [{"send": "PWR 1"}]}, resume=False)
+    source.playing = False
+    recovery.on_output_change(False)  # dropped while not playing: nothing yet
+    await hooks.idle()
+    assert amp.received_commands == [] and source.commands == []
+    source.playing = True
+    recovery.on_playing(True)
+    await wait_for(lambda: source.commands == ["pause"])
+    await hooks.idle()
+    assert amp.received_commands == [("PWR 1", False)]
+
+
+async def test_one_recovery_attempt_per_absence():
+    source, amp, hooks, recovery = await make_recovery({"on_output_lost": [{"send": "PWR 1"}]}, resume=False)
+    recovery.on_output_change(False)  # dropped while playing: attempt, pause
+    await wait_for(lambda: source.commands == ["pause"])
+    await hooks.idle()
+    source.playing = True
+    recovery.on_playing(True)  # played again by hand, DAC still missing: wait for it
+    await asyncio.sleep(0.05)
+    await hooks.idle()
+    assert amp.received_commands == [("PWR 1", False)] and source.commands == ["pause"]
+
+    recovery.on_output_change(True)  # back: the next absence gets a new attempt
+    source.playing = False
+    recovery.on_output_change(False)
+    source.playing = True
+    recovery.on_playing(True)
+    await hooks.idle()
+    assert amp.received_commands == [("PWR 1", False)] * 2
+
+
+async def test_on_connect_while_the_dac_is_missing_is_the_attempt():
+    hooks_config = {"on_connect": [{"send": "PWR 1"}], "on_output_lost": "on_connect"}
+    source, amp, hooks, recovery = await make_recovery(hooks_config, resume=False)
+    source.playing = False
+    recovery.on_output_change(False)
+    recovery.on_connection(True)
+    hooks.fire("connect")
+    source.playing = True
+    recovery.on_playing(True)
+    await asyncio.sleep(0.05)
+    await hooks.idle()
+    assert amp.received_commands == [("PWR 1", False)] and source.commands == []
+
+    recovery.on_connection(False)  # a new session gets a new attempt
+    recovery.on_playing(True)
+    await hooks.idle()
+    assert amp.received_commands == [("PWR 1", False)] * 2
