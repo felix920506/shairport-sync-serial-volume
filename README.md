@@ -23,6 +23,19 @@ docker compose up --build
 Edit `docker-compose.yaml` first: set `ALSA_DEVICE` (`aplay -l` on the host lists cards; use `hw:CARD=...`)
 and `SPS_NAME`. Host networking and `/dev/snd` are required.
 
+**Prebuilt images.** GitHub Actions (`.github/workflows/docker.yml`) builds the image for 64- and 32-bit
+x86 and ARM (`linux/amd64`, `linux/386`, `linux/arm64`, `linux/arm/v7`) and publishes it to the GitHub
+Container Registry as one multi-arch image, so Docker pulls the right variant for the machine. To use it
+instead of building locally, remove `build: .` from `docker-compose.yaml` and set its `image:` to:
+
+```yaml
+    image: ghcr.io/felix920506/shairport-sync-serial-volume:latest
+```
+
+and run `docker compose pull && docker compose up -d`. Tags: `latest` and `master` follow the default
+branch, `1.2.3` / `1.2` come from `v1.2.3` git tags, and `sha-<commit>` pins one build. Pull requests are
+built but not published.
+
 **USB DACs that come and go.** Many USB DACs drop off the bus when switched off or to another input.
 `docker-compose.yaml` bind-mounts the host's `/dev/snd` (with a cgroup rule for ALSA devices) instead of
 passing `devices: /dev/snd`, which would copy the device nodes once at start. That way a DAC that reappears
